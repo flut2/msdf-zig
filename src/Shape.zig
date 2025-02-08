@@ -45,8 +45,7 @@ pub fn validate(self: Shape) bool {
         var corner = contour.edges.getLast().point(1);
         for (contour.edges.items) |edge| {
             const p0 = edge.point(0);
-            if (!p0.eql(corner))
-                return false;
+            if (!p0.eql(corner)) return false;
             corner = edge.point(1);
         }
     };

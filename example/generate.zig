@@ -44,11 +44,11 @@ pub fn main() !void {
 
     const px_size = 64;
     inline for (.{ 'A', 'S' }) |codepoint| {
-        const data = try gen.generate(allocator, codepoint, .{ .sdf_type = .sdf, .px_size = px_size, .px_range = 8 });
+        const data = try gen.generate(allocator, codepoint, .{ .sdf_type = .msdf, .px_size = px_size, .px_range = 8 });
         defer data.deinit(allocator);
         std.log.info("Glyph Advance for \'{c}\': {d:.2}", .{codepoint, data.advance});
 
-        var image: zstbi.Image = try .createEmpty(px_size, px_size, 1, .{});
+        var image: zstbi.Image = try .createEmpty(px_size, px_size, 3, .{});
         defer image.deinit();
         @memcpy(image.data, data.pixels);
 
