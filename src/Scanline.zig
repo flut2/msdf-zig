@@ -7,9 +7,13 @@ const Scanline = @This();
 pub const Intersection = struct {
     x: f64,
     dir: i32,
+
+    pub fn lessThan(_: void, a: Intersection, b: Intersection) bool {
+        return a.x < b.x;
+    }
 };
 
-const FillRule = enum {
+pub const FillRule = enum {
     non_zero,
     odd,
     positive,
@@ -17,12 +21,12 @@ const FillRule = enum {
 };
 
 intersections: std.ArrayListUnmanaged(Intersection) = .empty,
-last_index: i32 = 0,
+last_index: u32 = 0,
 
 pub fn interpretFillRule(intersections: i32, fill_rule: FillRule) bool {
     return switch (fill_rule) {
         .non_zero => intersections != 0,
-        .odd => intersections % 2 == 1,
+        .odd => @mod(intersections, 2) == 1,
         .positive => intersections > 0,
         .negative => intersections < 0,
     };
@@ -70,12 +74,12 @@ pub fn overlap(a: Scanline, b: Scanline, x_from: f64, x_to: f64, fill_rule: Fill
 }
 
 pub fn countIntersections(self: *Scanline, x: f64) i32 {
-    return self.moveTo(x) + 1;
+    return (self.moveTo(x) orelse return 0) + 1;
 }
 
 pub fn sumIntersections(self: *Scanline, x: f64) i32 {
     const index = self.moveTo(x);
-    if (index >= 0) return self.intersections[@intCast(index)].dir;
+    if (index) |i| return self.intersections.items[i].dir;
     return 0;
 }
 
@@ -83,30 +87,32 @@ pub fn filled(self: *Scanline, x: f64, fill_rule: FillRule) bool {
     return interpretFillRule(self.sumIntersections(x), fill_rule);
 }
 
-fn lessThan(_: void, a: Intersection, b: Intersection) bool {
-    return a.x < b.x;
-}
-
 pub fn preprocess(self: *Scanline) void {
     self.last_index = 0;
     if (self.intersections.items.len == 0) return;
-    std.sort.pdq(void, self.intersections.items, {}, lessThan);
+    std.sort.pdq(Intersection, self.intersections.items, {}, Intersection.lessThan);
     var total_direction: i32 = 0;
     for (self.intersections.items) |*intersection| {
-        total_direction += intersection.direction;
-        intersection.direction = total_direction;
+        total_direction += intersection.dir;
+        intersection.dir = total_direction;
     }
 }
 
-pub fn moveTo(self: *Scanline, x: f64) i32 {
-    if (self.intersections.items.len == 0) return -1;
+pub fn moveTo(self: *Scanline, x: f64) ?u32 {
+    if (self.intersections.items.len == 0) return null;
 
     var index = self.last_index;
     if (x < self.intersections.items[index].x) {
+        if (index == 0) {
+            self.last_index = 0;
+            return null;
+        }
+        index -= 1;
+
         while (x < self.intersections.items[index].x) {
             if (index == 0) {
                 self.last_index = 0;
-                return -1;
+                return null;
             }
             index -= 1;
         }

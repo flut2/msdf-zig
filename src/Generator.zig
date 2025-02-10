@@ -8,6 +8,7 @@ const Contour = @import("Contour.zig");
 const edge_color = @import("edge_color.zig");
 const EdgeColor = edge_color.EdgeColor;
 const EdgeSegment = @import("EdgeSegment.zig");
+const Scanline = @import("Scanline.zig");
 const Shape = @import("Shape.zig");
 const SignedDistance = @import("SignedDistance.zig");
 const Vec2 = @import("Vec2.zig");
@@ -39,10 +40,11 @@ pub const SdfType = enum {
 };
 
 pub const GenerationOptions = struct {
-    corner_angle_threshold: f64 = 3.0,
     sdf_type: SdfType,
     px_size: u16,
     px_range: u16,
+    corner_angle_threshold: f64 = 3.0,
+    scanline_fill_rule: ?Scanline.FillRule = null,
 };
 
 const FreetypeContext = struct {
@@ -138,32 +140,102 @@ pub fn generate(
         .advance = scale * f64i(self.face.glyph().advance().x),
         .pixels = blk: switch (opts.sdf_type) {
             .sdf => {
-                const pixels = try allocator.alloc(u8, opts.px_size * opts.px_size);
-                generateSdf(pixels, opts.px_size, f_px_size, shape, px_range, translate_x, translate_y);
+                const channels = 1;
+                const float_pixels = try allocator.alloc(f64, opts.px_size * opts.px_size * channels);
+                defer allocator.free(float_pixels);
+                const pixels = try allocator.alloc(u8, opts.px_size * opts.px_size * channels);
+                generateSdf(float_pixels, opts.px_size, f_px_size, shape, px_range, translate_x, translate_y);
+                if (opts.scanline_fill_rule) |fill_rule| try sdfSignCorrection(
+                    allocator,
+                    float_pixels,
+                    opts.px_size,
+                    opts.px_size,
+                    shape,
+                    f_px_size,
+                    translate_x,
+                    translate_y,
+                    fill_rule,
+                );
+                convertPixels(float_pixels, pixels, opts.px_size, opts.px_size, channels);
                 break :blk pixels;
             },
             .psdf => {
-                const pixels = try allocator.alloc(u8, opts.px_size * opts.px_size);
-                generatePsdf(pixels, opts.px_size, f_px_size, shape, px_range, translate_x, translate_y);
+                const channels = 1;
+                const float_pixels = try allocator.alloc(f64, opts.px_size * opts.px_size * channels);
+                defer allocator.free(float_pixels);
+                const pixels = try allocator.alloc(u8, opts.px_size * opts.px_size * channels);
+                generatePsdf(float_pixels, opts.px_size, f_px_size, shape, px_range, translate_x, translate_y);
+                if (opts.scanline_fill_rule) |fill_rule| try sdfSignCorrection(
+                    allocator,
+                    float_pixels,
+                    opts.px_size,
+                    opts.px_size,
+                    shape,
+                    f_px_size,
+                    translate_x,
+                    translate_y,
+                    fill_rule,
+                );
+                convertPixels(float_pixels, pixels, opts.px_size, opts.px_size, channels);
                 break :blk pixels;
             },
             .msdf => {
-                const pixels = try allocator.alloc(u8, opts.px_size * opts.px_size * 3);
+                const channels = 3;
+                const float_pixels = try allocator.alloc(f64, opts.px_size * opts.px_size * channels);
+                defer allocator.free(float_pixels);
+                const pixels = try allocator.alloc(u8, opts.px_size * opts.px_size * channels);
                 try coloring.simple(allocator, &shape, opts.corner_angle_threshold);
-                generateMsdf(pixels, opts.px_size, f_px_size, shape, px_range, translate_x, translate_y);
+                generateMsdf(float_pixels, opts.px_size, f_px_size, shape, px_range, translate_x, translate_y);
+                convertPixels(float_pixels, pixels, opts.px_size, opts.px_size, channels);
                 break :blk pixels;
             },
             .mtsdf => {
-                const pixels = try allocator.alloc(u8, opts.px_size * opts.px_size * 4);
+                const channels = 4;
+                const float_pixels = try allocator.alloc(f64, opts.px_size * opts.px_size * channels);
+                defer allocator.free(float_pixels);
+                const pixels = try allocator.alloc(u8, opts.px_size * opts.px_size * channels);
                 try coloring.simple(allocator, &shape, opts.corner_angle_threshold);
-                generateMtsdf(pixels, opts.px_size, f_px_size, shape, px_range, translate_x, translate_y);
+                generateMtsdf(float_pixels, opts.px_size, f_px_size, shape, px_range, translate_x, translate_y);
+                convertPixels(float_pixels, pixels, opts.px_size, opts.px_size, channels);
                 break :blk pixels;
             },
         },
     };
 }
 
-fn generateSdf(out_pixels: []u8, size: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
+fn convertPixels(in_pixels: []f64, out_pixels: []u8, w: u16, h: u16, channels: u8) void {
+    for (0..h) |y| for (0..w) |x| {
+        const idx = y * w * channels + x * channels;
+        for (0..channels) |i| out_pixels[idx + i] = u8f(in_pixels[idx + i]);
+    };
+}
+
+fn sdfSignCorrection(
+    allocator: std.mem.Allocator,
+    out_pixels: []f64,
+    w: u16,
+    h: u16,
+    shape: Shape,
+    scale: f64,
+    tx: f64,
+    ty: f64,
+    fill_rule: Scanline.FillRule,
+) !void {
+    var scanline: Scanline = .{};
+    defer scanline.intersections.deinit(allocator);
+    for (0..h) |y| {
+        const row = h - y - 1;
+        try shape.scanline(&scanline, (f64i(y) + 0.5) / scale + tx, allocator);
+        for (0..w) |x| {
+            const idx = row * w + x;
+            const distance = out_pixels[idx];
+            if ((distance > 0.5) != scanline.filled((f64i(x) + 0.5) / scale + ty, fill_rule))
+                out_pixels[idx] = 1.0 - distance;
+        }
+    }
+}
+
+fn generateSdf(out_pixels: []f64, size: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
     for (0..size) |y| {
         const row = size - y - 1;
         for (0..size) |x| {
@@ -177,12 +249,12 @@ fn generateSdf(out_pixels: []u8, size: u16, scale: f64, shape: Shape, px_range: 
                 const dist = edge.signedDistance(p, &dummy);
                 if (dist.lt(min_dist)) min_dist = dist;
             };
-            out_pixels[row * size + x] = u8f(min_dist.distance / px_range - px_range / 2.0 + 0.5);
+            out_pixels[row * size + x] = (min_dist.distance + px_range / 2.0) / px_range;
         }
     }
 }
 
-fn generatePsdf(out_pixels: []u8, size: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
+fn generatePsdf(out_pixels: []f64, size: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
     for (0..size) |y| {
         const row = size - y - 1;
         for (0..size) |x| {
@@ -203,12 +275,12 @@ fn generatePsdf(out_pixels: []u8, size: u16, scale: f64, shape: Shape, px_range:
                 }
             };
             if (near_edge) |edge| edge.distanceToPerpendicularDistance(&min_dist, p, near_param);
-            out_pixels[row * size + x] = u8f(min_dist.distance / px_range - px_range / 2.0 + 0.5);
+            out_pixels[row * size + x] = (min_dist.distance + px_range / 2.0) / px_range;
         }
     }
 }
 
-fn generateMsdf(out_pixels: []u8, size: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
+fn generateMsdf(out_pixels: []f64, size: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
     for (0..size) |y| {
         const row = size - y - 1;
         for (0..size) |x| {
@@ -250,14 +322,14 @@ fn generateMsdf(out_pixels: []u8, size: u16, scale: f64, shape: Shape, px_range:
             const channels = 3;
             const scaled_size = size * channels;
             const scaled_x = x * channels;
-            out_pixels[row * scaled_size + scaled_x] = u8f(r.min_dist.distance / px_range - px_range / 2.0 + 0.5);
-            out_pixels[row * scaled_size + scaled_x + 1] = u8f(g.min_dist.distance / px_range - px_range / 2.0 + 0.5);
-            out_pixels[row * scaled_size + scaled_x + 2] = u8f(b.min_dist.distance / px_range - px_range / 2.0 + 0.5);
+            out_pixels[row * scaled_size + scaled_x] = (r.min_dist.distance + px_range / 2.0) / px_range;
+            out_pixels[row * scaled_size + scaled_x + 1] = (g.min_dist.distance + px_range / 2.0) / px_range;
+            out_pixels[row * scaled_size + scaled_x + 2] = (b.min_dist.distance + px_range / 2.0) / px_range;
         }
     }
 }
 
-fn generateMtsdf(out_pixels: []u8, size: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
+fn generateMtsdf(out_pixels: []f64, size: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
     for (0..size) |y| {
         const row = size - y - 1;
         for (0..size) |x| {
@@ -301,10 +373,10 @@ fn generateMtsdf(out_pixels: []u8, size: u16, scale: f64, shape: Shape, px_range
             const channels = 4;
             const scaled_size = size * channels;
             const scaled_x = x * channels;
-            out_pixels[row * scaled_size + scaled_x] = u8f(r.min_dist.distance / px_range - px_range / 2.0 + 0.5);
-            out_pixels[row * scaled_size + scaled_x + 1] = u8f(g.min_dist.distance / px_range - px_range / 2.0 + 0.5);
-            out_pixels[row * scaled_size + scaled_x + 2] = u8f(b.min_dist.distance / px_range - px_range / 2.0 + 0.5);
-            out_pixels[row * scaled_size + scaled_x + 3] = u8f(min_dist.distance / px_range - px_range / 2.0 + 0.5);
+            out_pixels[row * scaled_size + scaled_x] = (r.min_dist.distance + px_range / 2.0) / px_range;
+            out_pixels[row * scaled_size + scaled_x + 1] = (g.min_dist.distance + px_range / 2.0) / px_range;
+            out_pixels[row * scaled_size + scaled_x + 2] = (b.min_dist.distance + px_range / 2.0) / px_range;
+            out_pixels[row * scaled_size + scaled_x + 3] = (min_dist.distance + px_range / 2.0) / px_range;
         }
     }
 }
@@ -312,7 +384,7 @@ fn generateMtsdf(out_pixels: []u8, size: u16, scale: f64, shape: Shape, px_range
 fn ftMoveTo(to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.C) i32 {
     var context: *FreetypeContext = @alignCast(@ptrCast(ud));
     if (!(context.contour != null and context.contour.?.edges.items.len == 0)) {
-        context.contour = context.shape.contours.addOne(context.allocator) catch oomPanic();
+        context.contour = context.shape.contours.addOne(context.allocator) catch return ft.c.FT_Err_Out_Of_Memory;
         context.contour.?.* = .{};
     }
     context.pos = .{ .x = f64i(to.*.x) * context.scale, .y = f64i(to.*.y) * context.scale };
@@ -323,7 +395,10 @@ fn ftLineTo(to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.C) i32 {
     var context: *FreetypeContext = @alignCast(@ptrCast(ud));
     const endpoint: Vec2 = .{ .x = f64i(to.*.x) * context.scale, .y = f64i(to.*.y) * context.scale };
     if (!endpoint.eql(context.pos)) {
-        context.contour.?.edges.append(context.allocator, .create(context.pos, endpoint, null, null, .white)) catch oomPanic();
+        context.contour.?.edges.append(
+            context.allocator,
+            .create(context.pos, endpoint, null, null, .white),
+        ) catch return ft.c.FT_Err_Out_Of_Memory;
         context.pos = endpoint;
     }
     return 0;
@@ -339,7 +414,7 @@ fn ftConicTo(control: [*c]const ft.Vector, to: [*c]const ft.Vector, ud: ?*anyopa
             endpoint,
             null,
             .white,
-        )) catch oomPanic();
+        )) catch return ft.c.FT_Err_Out_Of_Memory;
         context.pos = endpoint;
     }
     return 0;
@@ -351,7 +426,10 @@ fn ftCubicTo(control1: [*c]const ft.Vector, control2: [*c]const ft.Vector, to: [
     const scaled_c1: Vec2 = .{ .x = f64i(control1.*.x) * context.scale, .y = f64i(control1.*.y) * context.scale };
     const scaled_c2: Vec2 = .{ .x = f64i(control2.*.x) * context.scale, .y = f64i(control2.*.y) * context.scale };
     if (!endpoint.eql(context.pos) or scaled_c1.sub(endpoint).cross(scaled_c2.sub(endpoint)) != 0.0) {
-        context.contour.?.edges.append(context.allocator, .create(context.pos, scaled_c1, scaled_c2, endpoint, .white)) catch oomPanic();
+        context.contour.?.edges.append(
+            context.allocator,
+            .create(context.pos, scaled_c1, scaled_c2, endpoint, .white),
+        ) catch return ft.c.FT_Err_Out_Of_Memory;
         context.pos = endpoint;
     }
     return 0;
@@ -364,8 +442,4 @@ fn f64i(int: anytype) f32 {
 fn u8f(float: anytype) u8 {
     const int_form: u8 = @intFromFloat(255.5 - 255.0 * clampNorm(float));
     return ~int_form;
-}
-
-fn oomPanic() noreturn {
-    @panic("Out of Memory");
 }

@@ -107,11 +107,11 @@ pub fn scanline(self: Shape, line: *Scanline, y: f64, allocator: std.mem.Allocat
     line.intersections.clearRetainingCapacity();
     defer line.preprocess();
 
-    var x: [3]f64 = undefined;
-    var dy: [3]i32 = undefined;
+    var x: [3]f64 = @splat(0.0);
+    var dy: [3]i32 = @splat(0);
     for (self.contours.items) |contour| for (contour.edges.items) |edge| {
-        for (0..edge.scanlineIntersections(&x, &dy, y)) |i|
-            try line.intersections.append(allocator, .{ .x = x[i], .dir = dy[i] });
+        const len = edge.scanlineIntersections(&x, &dy, y);
+        for (0..len) |i| try line.intersections.append(allocator, .{ .x = x[i], .dir = dy[i] });
     };
 }
 
@@ -147,8 +147,8 @@ pub fn orientContours(self: *Shape, allocator: std.mem.Allocator) !void {
         for (self.contours.items[i].edges.items) |edge| y1 = edge.point(1).y;
         for (self.contours.items[i].edges.items) |edge| y1 = edge.point(ratio).y;
         const y = math.mix(y0, y1, ratio);
-        var x: [3]f64 = undefined;
-        var dy: [3]i32 = undefined;
+        var x: [3]f64 = @splat(0.0);
+        var dy: [3]i32 = @splat(0);
         for (0..self.contours.items.len) |j|
             for (self.contours.items[j].edges.items) |edge|
                 for (0..edge.scanlineIntersections(&x, &dy, y)) |k|

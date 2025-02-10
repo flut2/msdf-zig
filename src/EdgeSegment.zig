@@ -264,8 +264,8 @@ pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64)
             x[total] = p[0].x;
             if (p[0].y == y) {
                 if (p[0].y < p[1].y or p[0].y == p[1].y and p[0].y < p[2].y) {
-                    total += 1;
                     dy[total] = 1;
+                    total += 1;
                 } else next_dy = 1;
             }
             {
@@ -278,8 +278,8 @@ pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64)
                     if (root >= 0 and root <= 1) {
                         x[total] = p[0].x + 2 * root * ab.x + root * root * br.x;
                         if (@as(f64, @floatFromInt(next_dy)) * (ab.y + root * br.y) >= 0) {
-                            total += 1;
                             dy[total] = next_dy;
+                            total += 1;
                             next_dy = -next_dy;
                         }
                     }
@@ -294,8 +294,8 @@ pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64)
                 if ((p[2].y < p[1].y or p[2].y == p[1].y and p[2].y < p[0].y) and total < 2) {
                     x[total] = p[2].x;
                     if (next_dy < 0) {
-                        total += 1;
                         dy[total] = -1;
+                        total += 1;
                         next_dy = 1;
                     }
                 }
@@ -306,8 +306,8 @@ pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64)
                     total -= 1
                 else {
                     if (@abs(p[2].y - y) < @abs(p[0].y - y)) x[total] = p[2].x;
-                    total += 1;
                     dy[total] = next_dy;
+                    total += 1;
                 }
             }
 
@@ -319,8 +319,8 @@ pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64)
             x[total] = p[0].x;
             if (p[0].y == y) {
                 if (p[0].y < p[1].y or (p[0].y == p[1].y and (p[0].y < p[2].y or (p[0].y == p[2].y and p[0].y < p[3].y)))) {
-                    total += 1;
                     dy[total] = 1;
+                    total += 1;
                 } else next_dy = 1;
             }
             {
@@ -342,8 +342,8 @@ pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64)
                     if (root >= 0 and root <= 1) {
                         x[total] = p[0].x + 3 * root * ab.x + 3 * root * root * br.x + root * root * root * as.x;
                         if (@as(f64, @floatFromInt(next_dy)) * (ab.y + 2 * root * br.y + root * root * as.y) >= 0) {
-                            total += 1;
                             dy[total] = next_dy;
+                            total += 1;
                             next_dy = -next_dy;
                         }
                     }
@@ -359,8 +359,8 @@ pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64)
                 if ((p[3].y < p[2].y or (p[3].y == p[2].y and (p[3].y < p[1].y or (p[3].y == p[1].y and p[3].y < p[0].y)))) and total < 3) {
                     x[total] = p[3].x;
                     if (next_dy < 0) {
-                        total += 1;
                         dy[total] = -1;
+                        total += 1;
                         next_dy = 1;
                     }
                 }
@@ -371,8 +371,8 @@ pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64)
                     total -= 1
                 else {
                     if (@abs(p[3].y - y) < @abs(p[0].y - y)) x[total] = p[3].x;
-                    total += 1;
                     dy[total] = next_dy;
+                    total += 1;
                 }
             }
 
