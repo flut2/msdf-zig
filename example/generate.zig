@@ -43,16 +43,75 @@ pub fn main() !void {
     });
 
     const px_size = 64;
-    inline for (.{ 'A', 'S', 'g' }) |codepoint| {
-        const data = try gen.generate(allocator, codepoint, .{ .sdf_type = .msdf, .px_size = px_size, .px_range = 8 });
-        defer data.deinit(allocator);
-        std.log.info("Glyph Advance for \'{c}\': {d:.2}", .{codepoint, data.advance});
+    const gen_opts: Generator.GenerationOptions = .{ .sdf_type = .mtsdf, .px_size = px_size, .px_range = 8 };
 
-        var image: zstbi.Image = try .createEmpty(px_size, px_size, 3, .{});
+    inline for (.{ 'A', 'S', 'g' }) |codepoint| {
+        const data = try gen.generateSingle(allocator, codepoint, gen_opts);
+        defer data.deinit(allocator);
+        std.log.info(
+            \\Single Glyph Data for "{u}":
+            \\Advance: {d:.2}
+            \\X Bearing: {d:.2}
+            \\Y Bearing: {d:.2}
+            \\Width: {d:.2}
+            \\Height: {d:.2}
+            \\
+        , .{
+            codepoint,
+            data.glyph_data.advance,
+            data.glyph_data.bearing_x,
+            data.glyph_data.bearing_y,
+            data.glyph_data.width,
+            data.glyph_data.height,
+        });
+
+        var image: zstbi.Image = try .createEmpty(data.glyph_data.width, data.glyph_data.height, gen_opts.sdf_type.numChannels(), .{});
         defer image.deinit();
         @memcpy(image.data, data.pixels);
 
-        const path = std.fmt.comptimePrint("{c}_sdf.png", .{codepoint});
+        const path = std.fmt.comptimePrint("{u}_sdf.png", .{codepoint});
         try image.writeToFile(path, .png);
     }
+
+    const atlas_w = 512;
+    const atlas_h = 512;
+    const data = try gen.generateAtlas(
+        allocator,
+        &.{ 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L' },
+        atlas_w,
+        atlas_h,
+        2,
+        gen_opts,
+    );
+    defer data.deinit(allocator);
+    for (data.glyphs) |atlas_glyph| std.log.info(
+        \\Atlas Glyph Data for "{u}":
+        \\Advance: {d:.2}
+        \\X Bearing: {d:.2}
+        \\Y Bearing: {d:.2}
+        \\Width: {d:.2}
+        \\Height: {d:.2}
+        \\Texture U: {d:.2}
+        \\Texture V: {d:.2}
+        \\Texture W: {d:.2}
+        \\Texture H: {d:.2}
+        \\
+    , .{
+        atlas_glyph.codepoint,
+        atlas_glyph.glyph_data.advance,
+        atlas_glyph.glyph_data.bearing_x,
+        atlas_glyph.glyph_data.bearing_y,
+        atlas_glyph.glyph_data.width,
+        atlas_glyph.glyph_data.height,
+        atlas_glyph.tex_u,
+        atlas_glyph.tex_v,
+        atlas_glyph.tex_w,
+        atlas_glyph.tex_h,
+    });
+
+    var image: zstbi.Image = try .createEmpty(atlas_w, atlas_h, gen_opts.sdf_type.numChannels(), .{});
+    defer image.deinit();
+    @memcpy(image.data, data.pixels);
+
+    try image.writeToFile("atlas_sdf.png", .png);
 }

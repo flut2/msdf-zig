@@ -1,12 +1,14 @@
 const std = @import("std");
 
 const ft = @import("mach-freetype");
+const pack = @import("turbopack");
 
 const coloring = @import("coloring.zig");
 const Contour = @import("Contour.zig");
 const edge_color = @import("edge_color.zig");
 const EdgeColor = edge_color.EdgeColor;
 const EdgeSegment = @import("EdgeSegment.zig");
+const ErrorCorrection = @import("ErrorCorrection.zig");
 const math = @import("math.zig");
 const clampNorm = math.clampNorm;
 const median = math.median;
@@ -27,9 +29,36 @@ pub const FontMetrics = struct {
 
 pub const GlyphData = struct {
     advance: f64,
+    bearing_x: f64,
+    bearing_y: f64,
+    width: u16,
+    height: u16,
+};
+
+pub const AtlasGlyphData = struct {
+    glyph_data: GlyphData,
+    codepoint: u21,
+    tex_u: f64,
+    tex_v: f64,
+    tex_w: f64,
+    tex_h: f64,
+};
+
+pub const SingleGlyphData = struct {
+    glyph_data: GlyphData,
     pixels: []const u8,
 
-    pub fn deinit(self: GlyphData, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: SingleGlyphData, allocator: std.mem.Allocator) void {
+        allocator.free(self.pixels);
+    }
+};
+
+pub const AtlasData = struct {
+    glyphs: []const AtlasGlyphData,
+    pixels: []const u8,
+
+    pub fn deinit(self: AtlasData, allocator: std.mem.Allocator) void {
+        allocator.free(self.glyphs);
         allocator.free(self.pixels);
     }
 };
@@ -39,17 +68,33 @@ pub const SdfType = enum {
     psdf,
     msdf,
     mtsdf,
+
+    pub fn numChannels(self: SdfType) u8 {
+        return switch (self) {
+            .sdf, .psdf => 1,
+            .msdf => 3,
+            .mtsdf => 4,
+        };
+    }
+};
+
+pub const OrientationType = enum {
+    guess,
+    keep,
+    reverse,
 };
 
 pub const GenerationOptions = struct {
     sdf_type: SdfType,
     px_size: u16,
     px_range: u16,
+    coloring_rng_seed: u64 = 0,
     corner_angle_threshold: f64 = 3.0,
-    orientation: enum { guess, keep, reverse } = .reverse,
+    orientation: OrientationType = .guess,
     geometry_preprocess: bool = false,
-    /// Requires geometry preprocessing to be disabled. A ``null`` value also disables this
+    /// Requires geometry preprocessing to be disabled
     scanline_fill_rule: ?Scanline.FillRule = .non_zero,
+    error_correction_opts: ?ErrorCorrection.Options = .{},
 };
 
 const FreetypeContext = struct {
@@ -87,13 +132,15 @@ pub fn fontMetrics(self: *Generator) !FontMetrics {
     };
 }
 
-/// The resulting GlyphData is under the caller's ownership
-pub fn generate(
+/// The result is under the caller's ownership (call ``deinit()`` or deallocate fields manually)
+pub fn generateSingle(
     self: *Generator,
     allocator: std.mem.Allocator,
     codepoint: u21,
     opts: GenerationOptions,
-) !GlyphData {
+) !SingleGlyphData {
+    edge_color.rng.seed(opts.coloring_rng_seed);
+
     const scale = 1.0 / f64i(self.face.unitsPerEM());
     const glyph_index = self.face.getCharIndex(codepoint) orelse return error.InvalidCodepoint;
     try self.face.loadGlyph(glyph_index, .{ .no_scale = true, .no_bitmap = true });
@@ -138,111 +185,233 @@ pub fn generate(
     if (bounds.left >= bounds.right or bounds.bottom >= bounds.top)
         bounds = .{ .left = 0, .bottom = 0, .right = 1, .top = 1 };
 
-    const translate_x = 0.5 * (1 - (bounds.right - bounds.left)) - bounds.left;
-    const translate_y = 0.5 * (1 - (bounds.top - bounds.bottom)) - bounds.bottom;
+    const translate_x = -bounds.left + px_range / 2.0;
+    const translate_y = -bounds.bottom + px_range / 2.0;
+    const w: u16 = @intFromFloat((bounds.right - bounds.left + px_range) * f_px_size);
+    const h: u16 = @intFromFloat((bounds.top - bounds.bottom + px_range) * f_px_size);
 
     const oob_point: Vec2 = if (opts.orientation == .guess)
         .{ .x = bounds.left - (bounds.right - bounds.left) - 1, .y = bounds.bottom - (bounds.top - bounds.bottom) - 1 }
     else
         undefined;
 
+    const metrics = self.face.glyph().metrics();
     return .{
-        .advance = scale * f64i(self.face.glyph().advance().x),
-        .pixels = blk: switch (opts.sdf_type) {
-            .sdf => {
-                const channels = 1;
-                const float_pixels = try allocator.alloc(f64, opts.px_size * opts.px_size * channels);
-                defer allocator.free(float_pixels);
-                const pixels = try allocator.alloc(u8, opts.px_size * opts.px_size * channels);
-                generateSdf(float_pixels, opts.px_size, f_px_size, shape, px_range, translate_x, translate_y);
-                if (opts.orientation == .reverse or opts.orientation == .guess and findDistanceAt(shape, oob_point, px_range) > 0)
-                    invertPixels(float_pixels);
-                if (!opts.geometry_preprocess) if (opts.scanline_fill_rule) |fill_rule| try sdfSignCorrection(
-                    allocator,
-                    float_pixels,
-                    opts.px_size,
-                    opts.px_size,
-                    shape,
-                    f_px_size,
-                    translate_x,
-                    translate_y,
-                    fill_rule,
-                );
-                convertPixels(float_pixels, pixels, opts.px_size, opts.px_size, channels);
-                break :blk pixels;
-            },
-            .psdf => {
-                const channels = 1;
-                const float_pixels = try allocator.alloc(f64, opts.px_size * opts.px_size * channels);
-                defer allocator.free(float_pixels);
-                const pixels = try allocator.alloc(u8, opts.px_size * opts.px_size * channels);
-                generatePsdf(float_pixels, opts.px_size, f_px_size, shape, px_range, translate_x, translate_y);
-                if (opts.orientation == .reverse or opts.orientation == .guess and findDistanceAt(shape, oob_point, px_range) > 0)
-                    invertPixels(float_pixels);
-                if (!opts.geometry_preprocess) if (opts.scanline_fill_rule) |fill_rule| try sdfSignCorrection(
-                    allocator,
-                    float_pixels,
-                    opts.px_size,
-                    opts.px_size,
-                    shape,
-                    f_px_size,
-                    translate_x,
-                    translate_y,
-                    fill_rule,
-                );
-                convertPixels(float_pixels, pixels, opts.px_size, opts.px_size, channels);
-                break :blk pixels;
-            },
-            .msdf => {
-                const channels = 3;
-                const float_pixels = try allocator.alloc(f64, opts.px_size * opts.px_size * channels);
-                defer allocator.free(float_pixels);
-                const pixels = try allocator.alloc(u8, opts.px_size * opts.px_size * channels);
-                try coloring.simple(allocator, &shape, opts.corner_angle_threshold);
-                generateMsdf(float_pixels, opts.px_size, f_px_size, shape, px_range, translate_x, translate_y);
-                if (opts.orientation == .reverse or opts.orientation == .guess and findDistanceAt(shape, oob_point, px_range) > 0)
-                    invertPixels(float_pixels);
-                if (!opts.geometry_preprocess) if (opts.scanline_fill_rule) |fill_rule| try msdfSignCorrection(
-                    allocator,
-                    float_pixels,
-                    opts.px_size,
-                    opts.px_size,
-                    shape,
-                    f_px_size,
-                    translate_x,
-                    translate_y,
-                    fill_rule,
-                    channels,
-                );
-                convertPixels(float_pixels, pixels, opts.px_size, opts.px_size, channels);
-                break :blk pixels;
-            },
-            .mtsdf => {
-                const channels = 4;
-                const float_pixels = try allocator.alloc(f64, opts.px_size * opts.px_size * channels);
-                defer allocator.free(float_pixels);
-                const pixels = try allocator.alloc(u8, opts.px_size * opts.px_size * channels);
-                try coloring.simple(allocator, &shape, opts.corner_angle_threshold);
-                generateMtsdf(float_pixels, opts.px_size, f_px_size, shape, px_range, translate_x, translate_y);
-                if (opts.orientation == .reverse or opts.orientation == .guess and findDistanceAt(shape, oob_point, px_range) > 0)
-                    invertPixels(float_pixels);
-                if (!opts.geometry_preprocess) if (opts.scanline_fill_rule) |fill_rule| try msdfSignCorrection(
-                    allocator,
-                    float_pixels,
-                    opts.px_size,
-                    opts.px_size,
-                    shape,
-                    f_px_size,
-                    translate_x,
-                    translate_y,
-                    fill_rule,
-                    channels,
-                );
-                convertPixels(float_pixels, pixels, opts.px_size, opts.px_size, channels);
-                break :blk pixels;
-            },
+        .glyph_data = .{
+            .advance = scale * f64i(self.face.glyph().advance().x),
+            .bearing_x = scale * f64i(metrics.horiBearingX),
+            .bearing_y = scale * f64i(metrics.horiBearingY),
+            .width = w,
+            .height = h,
         },
+        .pixels = try getSdfPixels(allocator, opts, w, h, &shape, translate_x, translate_y, oob_point),
     };
+}
+
+/// The result is under the caller's ownership (call ``deinit()`` or deallocate fields manually)
+pub fn generateAtlas(
+    self: *Generator,
+    allocator: std.mem.Allocator,
+    codepoints: []const u21,
+    w: u16,
+    h: u16,
+    padding: u8,
+    gen_opts: GenerationOptions,
+) !AtlasData {
+    edge_color.rng.seed(gen_opts.coloring_rng_seed);
+
+    const channels = gen_opts.sdf_type.numChannels();
+    const glyphs = try allocator.alloc(AtlasGlyphData, codepoints.len);
+    const pixels = try allocator.alloc(u8, @as(u32, w) * @as(u32, h) * channels);
+    @memset(pixels, 0);
+
+    var pack_ctx: pack.Context = try .create(allocator, w, h, .{});
+    defer pack_ctx.deinit();
+
+    for (codepoints, 0..) |codepoint, i| {
+        const scale = 1.0 / f64i(self.face.unitsPerEM());
+        const glyph_index = self.face.getCharIndex(codepoint) orelse return error.InvalidCodepoint;
+        try self.face.loadGlyph(glyph_index, .{ .no_scale = true, .no_bitmap = true });
+
+        var shape: Shape = .{};
+        defer {
+            for (shape.contours.items) |*contour| contour.edges.deinit(allocator);
+            shape.contours.deinit(allocator);
+        }
+
+        var context: FreetypeContext = .{
+            .allocator = allocator,
+            .scale = scale,
+            .shape = &shape,
+        };
+
+        const outline = self.face.glyph().outline().?;
+        try ft.intToError(ft.c.FT_Outline_Decompose(
+            outline.handle,
+            &ft.c.FT_Outline_Funcs{
+                .move_to = ftMoveTo,
+                .line_to = ftLineTo,
+                .conic_to = ftConicTo,
+                .cubic_to = ftCubicTo,
+                .shift = 0,
+                .delta = 0,
+            },
+            &context,
+        ));
+
+        if (shape.contours.items.len != 0 and shape.contours.getLast().edges.items.len == 0)
+            _ = shape.contours.orderedRemove(shape.contours.items.len - 1);
+
+        if (!shape.validate()) return error.InvalidShape;
+        if (gen_opts.geometry_preprocess) try shape.orientContours(allocator);
+        try shape.normalize(allocator);
+
+        const f_px_size = f64i(gen_opts.px_size);
+        const px_range = f64i(gen_opts.px_range) / f_px_size;
+
+        var bounds = shape.getBounds(0, 0, 0);
+        if (bounds.left >= bounds.right or bounds.bottom >= bounds.top)
+            bounds = .{ .left = 0, .bottom = 0, .right = 1, .top = 1 };
+
+        const translate_x = -bounds.left + px_range / 2.0;
+        const translate_y = -bounds.bottom + px_range / 2.0;
+        const glyph_w: u16 = @intFromFloat((bounds.right - bounds.left + px_range) * f_px_size);
+        const glyph_h: u16 = @intFromFloat((bounds.top - bounds.bottom + px_range) * f_px_size);
+
+        const oob_point: Vec2 = if (gen_opts.orientation == .guess)
+            .{ .x = bounds.left - (bounds.right - bounds.left) - 1, .y = bounds.bottom - (bounds.top - bounds.bottom) - 1 }
+        else
+            undefined;
+
+        if (glyph_w <= 0 or glyph_h <= 0) {
+            glyphs[i] = .{
+                .glyph_data = .{
+                    .advance = scale * f64i(self.face.glyph().advance().x),
+                    .bearing_x = 0,
+                    .bearing_y = 0,
+                    .width = glyph_w,
+                    .height = glyph_h,
+                },
+                .codepoint = codepoint,
+                .tex_u = 1.0,
+                .tex_v = 1.0,
+                .tex_w = 0.0,
+                .tex_h = 0.0,
+            };
+            continue;
+        }
+
+        const sdf_pixels = try getSdfPixels(allocator, gen_opts, glyph_w, glyph_h, &shape, translate_x, translate_y, oob_point);
+        defer allocator.free(sdf_pixels);
+
+        var rect: [1]pack.Rect = .{.{
+            .w = glyph_w + padding * 2,
+            .h = glyph_h + padding * 2,
+        }};
+        try pack.pack(pack.Rect, &pack_ctx, &rect, .{});
+
+        const cur_atlas_x: u32 = @intCast(rect[0].x + padding);
+        const cur_atlas_y: u32 = @intCast(rect[0].y + padding);
+        for (0..glyph_h) |j| {
+            const atlas_idx = ((cur_atlas_y + j) * w + cur_atlas_x) * channels;
+            const src_idx = (j * glyph_w) * channels;
+            @memcpy(pixels[atlas_idx .. atlas_idx + glyph_w * channels], sdf_pixels[src_idx .. src_idx + glyph_w * channels]);
+        }
+
+        const metrics = self.face.glyph().metrics();
+        glyphs[i] = .{
+            .glyph_data = .{
+                .advance = scale * f64i(self.face.glyph().advance().x),
+                .bearing_x = scale * f64i(metrics.horiBearingX),
+                .bearing_y = scale * f64i(metrics.horiBearingY),
+                .width = @intCast(rect[0].w),
+                .height = @intCast(rect[0].h),
+            },
+            .codepoint = codepoint,
+            .tex_u = f64i(rect[0].x) / f64i(w),
+            .tex_v = f64i(rect[0].y) / f64i(h),
+            .tex_w = f64i(rect[0].w) / f64i(w),
+            .tex_h = f64i(rect[0].h) / f64i(h),
+        };
+    }
+
+    return .{
+        .glyphs = glyphs,
+        .pixels = pixels,
+    };
+}
+
+fn getSdfPixels(
+    allocator: std.mem.Allocator,
+    opts: GenerationOptions,
+    w: u16,
+    h: u16,
+    shape: *Shape,
+    translate_x: f64,
+    translate_y: f64,
+    oob_point: Vec2,
+) ![]const u8 {
+    const f_px_size = f64i(opts.px_size);
+    const px_range = f64i(opts.px_range) / f_px_size;
+
+    var error_correction: ErrorCorrection = if (opts.error_correction_opts) |ec_opts|
+        try .create(allocator, w, h, ec_opts)
+    else
+        .{};
+    defer error_correction.destroy(allocator);
+
+    const channels = opts.sdf_type.numChannels();
+
+    const float_pixels = try allocator.alloc(f64, w * h * channels);
+    defer allocator.free(float_pixels);
+    const pixels = try allocator.alloc(u8, w * h * channels);
+    switch (opts.sdf_type) {
+        .sdf => generateSdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y),
+        .psdf => generatePsdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y),
+        .msdf => {
+            try coloring.simple(allocator, shape, opts.corner_angle_threshold);
+            generateMsdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y);
+        },
+        .mtsdf => {
+            try coloring.simple(allocator, shape, opts.corner_angle_threshold);
+            generateMtsdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y);
+        },
+    }
+
+    if (opts.orientation == .reverse or (opts.orientation == .guess and findDistanceAt(shape.*, oob_point, px_range) > 0))
+        invertPixels(float_pixels);
+
+    if (!opts.geometry_preprocess) if (opts.scanline_fill_rule) |fill_rule|
+        switch (opts.sdf_type) {
+            .sdf, .psdf => try sdfSignCorrection(
+                allocator,
+                float_pixels,
+                w,
+                h,
+                f_px_size,
+                shape.*,
+                translate_x,
+                translate_y,
+                fill_rule,
+            ),
+            .msdf, .mtsdf => try msdfSignCorrection(
+                allocator,
+                float_pixels,
+                w,
+                h,
+                f_px_size,
+                shape.*,
+                translate_x,
+                translate_y,
+                fill_rule,
+                channels,
+            ),
+        };
+
+    if (opts.error_correction_opts != null)
+        error_correction.applyProtections(shape, f_px_size, px_range, translate_x, translate_y, float_pixels, w, h, channels);
+    convertPixels(float_pixels, pixels, w, h, channels);
+    return pixels;
 }
 
 fn convertPixels(in_pixels: []f64, out_pixels: []u8, w: u16, h: u16, channels: u8) void {
@@ -261,8 +430,8 @@ fn sdfSignCorrection(
     out_pixels: []f64,
     w: u16,
     h: u16,
-    shape: Shape,
     scale: f64,
+    shape: Shape,
     tx: f64,
     ty: f64,
     fill_rule: Scanline.FillRule,
@@ -286,8 +455,8 @@ fn msdfSignCorrection(
     out_pixels: []f64,
     w: u16,
     h: u16,
-    shape: Shape,
     scale: f64,
+    shape: Shape,
     tx: f64,
     ty: f64,
     fill_rule: Scanline.FillRule,
@@ -352,10 +521,10 @@ fn findDistanceAt(shape: Shape, p: Vec2, px_range: f64) f64 {
     return (min_dist.distance + px_range / 2.0) / px_range;
 }
 
-fn generateSdf(out_pixels: []f64, size: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
-    for (0..size) |y| {
-        const row = size - y - 1;
-        for (0..size) |x| {
+fn generateSdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
+    for (0..h) |y| {
+        const row = h - y - 1;
+        for (0..w) |x| {
             var dummy: f64 = 0;
             const p: Vec2 = .{
                 .x = (f64i(x) + 0.5) / scale - tx,
@@ -366,15 +535,15 @@ fn generateSdf(out_pixels: []f64, size: u16, scale: f64, shape: Shape, px_range:
                 const dist = edge.signedDistance(p, &dummy);
                 if (dist.lt(min_dist)) min_dist = dist;
             };
-            out_pixels[row * size + x] = (min_dist.distance + px_range / 2.0) / px_range;
+            out_pixels[row * w + x] = (min_dist.distance + px_range / 2.0) / px_range;
         }
     }
 }
 
-fn generatePsdf(out_pixels: []f64, size: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
-    for (0..size) |y| {
-        const row = size - y - 1;
-        for (0..size) |x| {
+fn generatePsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
+    for (0..h) |y| {
+        const row = h - y - 1;
+        for (0..w) |x| {
             const p: Vec2 = .{
                 .x = (f64i(x) + 0.5) / scale - tx,
                 .y = (f64i(y) + 0.5) / scale - ty,
@@ -392,15 +561,15 @@ fn generatePsdf(out_pixels: []f64, size: u16, scale: f64, shape: Shape, px_range
                 }
             };
             if (near_edge) |edge| edge.distanceToPerpendicularDistance(&min_dist, p, near_param);
-            out_pixels[row * size + x] = (min_dist.distance + px_range / 2.0) / px_range;
+            out_pixels[row * w + x] = (min_dist.distance + px_range / 2.0) / px_range;
         }
     }
 }
 
-fn generateMsdf(out_pixels: []f64, size: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
-    for (0..size) |y| {
-        const row = size - y - 1;
-        for (0..size) |x| {
+fn generateMsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
+    for (0..h) |y| {
+        const row = h - y - 1;
+        for (0..w) |x| {
             const p: Vec2 = .{
                 .x = (f64i(x) + 0.5) / scale - tx,
                 .y = (f64i(y) + 0.5) / scale - ty,
@@ -437,19 +606,19 @@ fn generateMsdf(out_pixels: []f64, size: u16, scale: f64, shape: Shape, px_range
             if (b.near_edge) |edge| edge.distanceToPerpendicularDistance(&b.min_dist, p, b.near_param);
 
             const channels = 3;
-            const scaled_size = size * channels;
+            const scaled_w = w * channels;
             const scaled_x = x * channels;
-            out_pixels[row * scaled_size + scaled_x] = (r.min_dist.distance + px_range / 2.0) / px_range;
-            out_pixels[row * scaled_size + scaled_x + 1] = (g.min_dist.distance + px_range / 2.0) / px_range;
-            out_pixels[row * scaled_size + scaled_x + 2] = (b.min_dist.distance + px_range / 2.0) / px_range;
+            out_pixels[row * scaled_w + scaled_x] = (r.min_dist.distance + px_range / 2.0) / px_range;
+            out_pixels[row * scaled_w + scaled_x + 1] = (g.min_dist.distance + px_range / 2.0) / px_range;
+            out_pixels[row * scaled_w + scaled_x + 2] = (b.min_dist.distance + px_range / 2.0) / px_range;
         }
     }
 }
 
-fn generateMtsdf(out_pixels: []f64, size: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
-    for (0..size) |y| {
-        const row = size - y - 1;
-        for (0..size) |x| {
+fn generateMtsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
+    for (0..h) |y| {
+        const row = h - y - 1;
+        for (0..w) |x| {
             const p: Vec2 = .{
                 .x = (f64i(x) + 0.5) / scale - tx,
                 .y = (f64i(y) + 0.5) / scale - ty,
@@ -488,12 +657,12 @@ fn generateMtsdf(out_pixels: []f64, size: u16, scale: f64, shape: Shape, px_rang
             if (b.near_edge) |edge| edge.distanceToPerpendicularDistance(&b.min_dist, p, b.near_param);
 
             const channels = 4;
-            const scaled_size = size * channels;
+            const scaled_w = w * channels;
             const scaled_x = x * channels;
-            out_pixels[row * scaled_size + scaled_x] = (r.min_dist.distance + px_range / 2.0) / px_range;
-            out_pixels[row * scaled_size + scaled_x + 1] = (g.min_dist.distance + px_range / 2.0) / px_range;
-            out_pixels[row * scaled_size + scaled_x + 2] = (b.min_dist.distance + px_range / 2.0) / px_range;
-            out_pixels[row * scaled_size + scaled_x + 3] = (min_dist.distance + px_range / 2.0) / px_range;
+            out_pixels[row * scaled_w + scaled_x] = (r.min_dist.distance + px_range / 2.0) / px_range;
+            out_pixels[row * scaled_w + scaled_x + 1] = (g.min_dist.distance + px_range / 2.0) / px_range;
+            out_pixels[row * scaled_w + scaled_x + 2] = (b.min_dist.distance + px_range / 2.0) / px_range;
+            out_pixels[row * scaled_w + scaled_x + 3] = (min_dist.distance + px_range / 2.0) / px_range;
         }
     }
 }
@@ -552,7 +721,7 @@ fn ftCubicTo(control1: [*c]const ft.Vector, control2: [*c]const ft.Vector, to: [
     return 0;
 }
 
-fn f64i(int: anytype) f32 {
+pub fn f64i(int: anytype) f32 {
     return @floatFromInt(int);
 }
 

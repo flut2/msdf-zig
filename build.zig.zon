@@ -12,6 +12,12 @@
         .mach_freetype = .{
             .url = "git+https://github.com/hexops/mach-freetype.git#d63efa5534c17f3a12ed3d327e0ad42a64adc20a",
             .hash = "1220adfccce3dbc4e4fa8650fdaec110a676f6b8a1462ed6ef422815207f8288e9d2",
+            .lazy = true,
+        },
+        .turbopack = .{
+            .url = "git+https://github.com/flut2/turbopack.git#afeb5e792e19043aea738ff0315e07047dc64dd6",
+            .hash = "1220436f7fbbe4886f98313128e2fc0291bba801229429e8ad0a3de47360851761fe",
+            .lazy = true,
         },
     },
 }

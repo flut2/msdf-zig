@@ -8,8 +8,12 @@ pub fn build(b: *std.Build) void {
     if (b.lazyDependency("mach_freetype", .{
         .optimize = optimize,
         .target = target,
-    })) |dep|
-        msdf_zig_mod.addImport("mach-freetype", dep.module("mach-freetype"));
+    })) |dep| msdf_zig_mod.addImport("mach-freetype", dep.module("mach-freetype"));
+
+    if (b.lazyDependency("turbopack", .{
+        .target = target,
+        .optimize = optimize,
+    })) |dep| msdf_zig_mod.addImport("turbopack", dep.module("turbopack"));
 
     const exe = b.addExecutable(.{
         .name = "Example",
