@@ -22,7 +22,7 @@ pub const Mode = enum { indiscriminate, edge_priority, edge_only };
 pub const DistanceMode = enum { none, at_edge, always };
 pub const Options = struct {
     mode: Mode = .edge_priority,
-    /// The distance checking will be forcefully turned off (set to .none) if the scanline pass is enabled
+    /// The distance checking will be forcefully turned off (set to ``.none``) if the scanline pass is enabled
     distance_mode: DistanceMode = .none,
     min_deviation_ratio: f64 = 1.11111111111111111,
     min_improve_ratio: f64 = 1.11111111111111111,
@@ -75,7 +75,7 @@ pub fn applyProtections(
             self.protectEdges(scale, px_range, sdf_px, sdf_w, sdf_h, channels);
         },
         .edge_only => self.protectAll(),
-        else => {},
+        .indiscriminate => {},
     }
 
     self.findErrors(scale, px_range, sdf_px, sdf_w, sdf_h, channels);
@@ -96,16 +96,24 @@ pub fn protectCorners(self: *ErrorCorrection, shape: *Shape, scale: f64, tx: f64
             const right = left + 1;
             const top = bottom + 1;
             if (left < self.stencil_w and bottom < self.stencil_h and right >= 0 and top >= 0) {
-                if (left >= 0 and bottom >= 0) self.stencil[@intCast(bottom * self.stencil_w + left)].protected = true;
-                if (right < self.stencil_w and bottom >= 0) self.stencil[@intCast(bottom * self.stencil_w + right)].protected = true;
-                if (left >= 0 and top < self.stencil_h) self.stencil[@intCast(top * self.stencil_w + left)].protected = true;
-                if (right < self.stencil_w and top < self.stencil_h) self.stencil[@intCast(top * self.stencil_w + right)].protected = true;
+                if (left >= 0 and bottom >= 0)
+                    self.stencil[index(@intCast(left), @intCast(bottom), self.stencil_w, 1)].protected = true;
+                if (right < self.stencil_w and bottom >= 0)
+                    self.stencil[index(@intCast(right), @intCast(bottom), self.stencil_w, 1)].protected = true;
+                if (left >= 0 and top < self.stencil_h)
+                    self.stencil[index(@intCast(left), @intCast(top), self.stencil_w, 1)].protected = true;
+                if (right < self.stencil_w and top < self.stencil_h)
+                    self.stencil[index(@intCast(right), @intCast(top), self.stencil_w, 1)].protected = true;
             }
         }
     }
 }
 
-fn edgeBetweenTexelsChannel(a: []const f64, b: []const f64, channel: u8) bool {
+fn index(x: usize, y: usize, w: usize, channels: usize) usize {
+    return y * w * channels + x * channels;
+}
+
+fn edgeBetweenTexelsChannel(a: *const [3]f64, b: *const [3]f64, channel: u8) bool {
     const delta = a[channel] - b[channel];
     if (delta == 0.0) return false;
     const t = (a[channel] - 0.5) / delta;
@@ -120,20 +128,24 @@ fn edgeBetweenTexelsChannel(a: []const f64, b: []const f64, channel: u8) bool {
     return false;
 }
 
-fn edgeBetweenTexels(a: []const f64, b: []const f64) u32 {
+fn edgeBetweenTexels(a: *const [3]f64, b: *const [3]f64) u32 {
     return red * @intFromBool(edgeBetweenTexelsChannel(a, b, 0)) +
         green * @intFromBool(edgeBetweenTexelsChannel(a, b, 1)) +
         blue * @intFromBool(edgeBetweenTexelsChannel(a, b, 2));
 }
 
-fn protectExtremeChannels(stencil_point: *StencilFlag, msd: []const f64, m: f64, mask: u32) void {
-    if ((mask & red != 0 and msd[0] != m) or
-        (mask & green != 0 and msd[1] != m) or
-        (mask & blue != 0 and msd[2] != m))
+fn protectExtremeChannels(stencil_point: *StencilFlag, msd: *const [3]f64, m: f64, mask: u32) void {
+    if (mask & red != 0 and msd[0] != m or
+        mask & green != 0 and msd[1] != m or
+        mask & blue != 0 and msd[2] != m)
         stencil_point.protected = true;
 }
 
-pub fn protectEdges(
+fn msdfMedian(msdf: *const [3]f64) f64 {
+    return median(msdf[0], msdf[1], msdf[2]);
+}
+
+fn protectEdges(
     self: *ErrorCorrection,
     scale: f64,
     px_range: f64,
@@ -144,57 +156,49 @@ pub fn protectEdges(
 ) void {
     const hori_radius = (Vec2{ .x = px_range, .y = 0 }).div(scale).length() * protection_radius_tolerance;
     for (0..sdf_h) |y| for (0..sdf_w - 1) |x| {
-        const left_idx = y * sdf_w * channels + x * channels;
-        const left = sdf_px[left_idx .. left_idx + 3];
-        const right_idx = y * sdf_w * channels + (x + 1) * channels;
-        const right = sdf_px[right_idx .. right_idx + 3];
-        const median_left = median(left[0], left[1], left[2]);
-        const median_right = median(right[0], right[1], right[2]);
+        const left = sdf_px[index(0, y, sdf_w, channels)..][0..3];
+        const right = sdf_px[index(1, y, sdf_w, channels)..][0..3];
+        const median_left = msdfMedian(left);
+        const median_right = msdfMedian(right);
         if (@abs(median_left - 0.5) + @abs(median_right - 0.5) < hori_radius) {
             const mask = edgeBetweenTexels(left, right);
-            protectExtremeChannels(&self.stencil[y * self.stencil_w + x], left, median_left, mask);
-            protectExtremeChannels(&self.stencil[y * self.stencil_w + (x + 1)], right, median_right, mask);
+            protectExtremeChannels(&self.stencil[index(x, y, self.stencil_w, 1)], left, median_left, mask);
+            protectExtremeChannels(&self.stencil[index(x + 1, y, self.stencil_w, 1)], right, median_right, mask);
         }
     };
 
     const vert_radius = (Vec2{ .x = 0, .y = px_range }).div(scale).length() * protection_radius_tolerance;
     for (0..sdf_h - 1) |y| for (0..sdf_w) |x| {
-        const bottom_idx = y * sdf_w * channels;
-        const bottom = sdf_px[bottom_idx .. bottom_idx + 3];
-        const top_idx = (y + 1) * sdf_w * channels;
-        const top = sdf_px[top_idx .. top_idx + 3];
-        const median_bottom = median(bottom[0], bottom[1], bottom[2]);
-        const median_top = median(top[0], top[1], top[2]);
+        const bottom = sdf_px[index(0, y, sdf_w, channels)..][0..3];
+        const top = sdf_px[index(0, y + 1, sdf_w, channels)..][0..3];
+        const median_bottom = msdfMedian(bottom);
+        const median_top = msdfMedian(top);
         if (@abs(median_bottom - 0.5) + @abs(median_top - 0.5) < vert_radius) {
             const mask = edgeBetweenTexels(bottom, top);
-            protectExtremeChannels(&self.stencil[y * self.stencil_w + x], bottom, median_bottom, mask);
-            protectExtremeChannels(&self.stencil[(y + 1) * self.stencil_w + x], top, median_top, mask);
+            protectExtremeChannels(&self.stencil[index(x, y, self.stencil_w, 1)], bottom, median_bottom, mask);
+            protectExtremeChannels(&self.stencil[index(x, y + 1, self.stencil_w, 1)], top, median_top, mask);
         }
     };
 
     const diag_radius = (Vec2{ .x = px_range, .y = px_range }).div(scale).length() * protection_radius_tolerance;
     for (0..sdf_h - 1) |y| for (0..sdf_w - 1) |x| {
-        const bottom_left_idx = y * sdf_w * channels;
-        const bottom_left = sdf_px[bottom_left_idx .. bottom_left_idx + 3];
-        const bottom_right_idx = y * sdf_w * channels + 1 * channels;
-        const bottom_right = sdf_px[bottom_right_idx .. bottom_right_idx + 3];
-        const top_left_idx = (y + 1) * sdf_w * channels;
-        const top_left = sdf_px[top_left_idx .. top_left_idx + 3];
-        const top_right_idx = (y + 1) * sdf_w * channels + 1 * channels;
-        const top_right = sdf_px[top_right_idx .. top_right_idx + 3];
-        const median_bottom_left = median(bottom_left[0], bottom_left[1], bottom_left[2]);
-        const median_bottom_right = median(bottom_right[0], bottom_right[1], bottom_right[2]);
-        const median_top_left = median(top_left[0], top_left[1], top_left[2]);
-        const median_top_right = median(top_right[0], top_right[1], top_right[2]);
+        const bottom_left = sdf_px[index(0, y, sdf_w, channels)..][0..3];
+        const bottom_right = sdf_px[index(1, y, sdf_w, channels)..][0..3];
+        const top_left = sdf_px[index(0, y + 1, sdf_w, channels)..][0..3];
+        const top_right = sdf_px[index(1, y + 1, sdf_w, channels)..][0..3];
+        const median_bottom_left = msdfMedian(bottom_left);
+        const median_bottom_right = msdfMedian(bottom_right);
+        const median_top_left = msdfMedian(top_left);
+        const median_top_right = msdfMedian(top_right);
         if (@abs(median_bottom_left - 0.5) + @abs(median_top_right - 0.5) < diag_radius) {
             const mask = edgeBetweenTexels(bottom_left, top_right);
-            protectExtremeChannels(&self.stencil[y * self.stencil_w + x], bottom_left, median_bottom_left, mask);
-            protectExtremeChannels(&self.stencil[(y + 1) * self.stencil_w + (x + 1)], top_right, median_top_right, mask);
+            protectExtremeChannels(&self.stencil[index(x, y, self.stencil_w, 1)], bottom_left, median_bottom_left, mask);
+            protectExtremeChannels(&self.stencil[index(x + 1, y + 1, self.stencil_w, 1)], top_right, median_top_right, mask);
         }
         if (@abs(median_bottom_right - 0.5) + @abs(median_top_left - 0.5) < diag_radius) {
             const mask = edgeBetweenTexels(bottom_right, top_left);
-            protectExtremeChannels(&self.stencil[y * self.stencil_w + (x + 1)], bottom_right, median_bottom_right, mask);
-            protectExtremeChannels(&self.stencil[(y + 1) * self.stencil_w + x], top_left, median_top_left, mask);
+            protectExtremeChannels(&self.stencil[index(x + 1, y, self.stencil_w, 1)], bottom_right, median_bottom_right, mask);
+            protectExtremeChannels(&self.stencil[index(x, y + 1, self.stencil_w, 1)], top_left, median_top_left, mask);
         }
     };
 }
@@ -203,7 +207,7 @@ fn protectAll(self: *ErrorCorrection) void {
     for (self.stencil) |*mask| mask.protected = true;
 }
 
-fn interpolatedMedianLinear(a: []const f64, b: []const f64, t: f64) f64 {
+fn interpolatedMedianLinear(a: *const [3]f64, b: *const [3]f64, t: f64) f64 {
     return median(
         mix(a[0], b[0], t),
         mix(a[1], b[1], t),
@@ -211,7 +215,7 @@ fn interpolatedMedianLinear(a: []const f64, b: []const f64, t: f64) f64 {
     );
 }
 
-fn interpolatedMedianBilinear(a: []const f64, l: []const f64, q: []const f64, t: f64) f64 {
+fn interpolatedMedianBilinear(a: *const [3]f64, l: *const [3]f64, q: *const [3]f64, t: f64) f64 {
     return median(
         t * (t * q[0] + l[0]) + a[0],
         t * (t * q[1] + l[1]) + a[1],
@@ -246,7 +250,7 @@ fn isArtifact(is_protected: bool, ax_span: f64, bx_span: f64, median_a: f64, med
     // zig fmt: on
 }
 
-fn hasLinearArtifactInner(span: f64, protected: bool, am: f64, bm: f64, a: []const f64, b: []const f64, da: f64, db: f64) bool {
+fn hasLinearArtifactInner(span: f64, protected: bool, am: f64, bm: f64, a: *const [3]f64, b: *const [3]f64, da: f64, db: f64) bool {
     const delta = da - db;
     if (delta == 0) return false;
     const t = da / (da - db);
@@ -262,9 +266,9 @@ fn hasDiagonalArtifactInner(
     protected: bool,
     am: f64,
     dm: f64,
-    a: []const f64,
-    l: []const f64,
-    q: []const f64,
+    a: *const [3]f64,
+    l: *const [3]f64,
+    q: *const [3]f64,
     d_a: f64,
     d_bc: f64,
     d_d: f64,
@@ -302,14 +306,14 @@ fn hasDiagonalArtifactInner(
     return false;
 }
 
-fn hasLinearArtifact(span: f64, protected: bool, am: f64, a: []const f64, b: []const f64) bool {
+fn hasLinearArtifact(span: f64, protected: bool, am: f64, a: *const [3]f64, b: *const [3]f64) bool {
     const bm = median(b[0], b[1], b[2]);
     return (@abs(am - 0.5) >= @abs(bm - 0.5) and (hasLinearArtifactInner(span, protected, am, bm, a, b, a[1] - a[0], b[1] - b[0]) or
         hasLinearArtifactInner(span, protected, am, bm, a, b, a[2] - a[1], b[2] - b[1]) or
         hasLinearArtifactInner(span, protected, am, bm, a, b, a[0] - a[2], b[0] - b[2])));
 }
 
-fn hasDiagonalArtifact(span: f64, protected: bool, am: f64, a: []const f64, b: []const f64, c: []const f64, d: []const f64) bool {
+fn hasDiagonalArtifact(span: f64, protected: bool, am: f64, a: *const [3]f64, b: *const [3]f64, c: *const [3]f64, d: *const [3]f64) bool {
     const dm = median(d[0], d[1], d[2]);
     if (@abs(am - 0.5) >= @abs(dm - 0.5)) {
         const abc: [3]f64 = .{
@@ -327,7 +331,7 @@ fn hasDiagonalArtifact(span: f64, protected: bool, am: f64, a: []const f64, b: [
             d[1] + abc[1],
             d[2] + abc[2],
         };
-        
+
         if (q[0] == 0.0 or q[1] == 0.0 or q[2] == 0.0) return false;
 
         const t_ex: [3]f64 = .{
@@ -394,38 +398,31 @@ fn findErrors(
     const diag_span = (Vec2{ .x = px_range, .y = px_range }).div(scale).length() * min_deviation_ratio;
 
     for (0..sdf_h) |y| for (0..sdf_w) |x| {
-        const current_idx = y * sdf_w * channels + x * channels;
-        const current = sdf_px[current_idx .. current_idx + 3];
-        const median_current = median(current[0], current[1], current[2]);
-        var current_stencil = &self.stencil[y * self.stencil_w + x];
+        const current = sdf_px[index(x, y, sdf_w, channels)..][0..3];
+        const median_current = msdfMedian(current);
+        var current_stencil = &self.stencil[index(x, y, self.stencil_w, 1)];
         const is_protected = current_stencil.protected;
 
         if (x > 0) {
-            const left_idx = y * sdf_w * channels + (x - 1) * channels;
-            const left = sdf_px[left_idx .. left_idx + 3];
-
+            const left = sdf_px[index(x - 1, y, sdf_w, channels)..][0..3];
             if (hasLinearArtifact(hori_span, is_protected, median_current, current, left)) {
                 current_stencil.err = true;
                 continue;
             }
 
             if (y > 0) {
-                const bottom_idx = (y - 1) * sdf_w * channels + x * channels;
-                const bottom = sdf_px[bottom_idx .. bottom_idx + 3];
-                const top_left_idx = (y - 1) * sdf_w * channels + (x - 1) * channels;
-                const top_left = sdf_px[top_left_idx .. top_left_idx + 3];
-                if (hasDiagonalArtifact(diag_span, is_protected, median_current, current, left, bottom, top_left)) {
+                const top = sdf_px[index(x, y - 1, sdf_w, channels)..][0..3];
+                const top_left = sdf_px[index(x - 1, y - 1, sdf_w, channels)..][0..3];
+                if (hasDiagonalArtifact(diag_span, is_protected, median_current, current, left, top, top_left)) {
                     current_stencil.err = true;
                     continue;
                 }
             }
 
             if (y < sdf_h - 1) {
-                const top_idx = (y + 1) * sdf_w * channels + x * channels;
-                const top = sdf_px[top_idx .. top_idx + 3];
-                const bottom_left_idx = (y + 1) * sdf_w * channels + (x - 1) * channels;
-                const bottom_left = sdf_px[bottom_left_idx .. bottom_left_idx + 3];
-                if (hasDiagonalArtifact(diag_span, is_protected, median_current, current, left, top, bottom_left)) {
+                const bottom = sdf_px[index(x, y + 1, sdf_w, channels)..][0..3];
+                const bottom_left = sdf_px[index(x - 1, y + 1, sdf_w, channels)..][0..3];
+                if (hasDiagonalArtifact(diag_span, is_protected, median_current, current, left, bottom, bottom_left)) {
                     current_stencil.err = true;
                     continue;
                 }
@@ -433,40 +430,33 @@ fn findErrors(
         }
 
         if (y > 0) {
-            const bottom_idx = (y - 1) * sdf_w * channels + x * channels;
-            const bottom = sdf_px[bottom_idx .. bottom_idx + 3];
-            if (hasLinearArtifact(vert_span, is_protected, median_current, current, bottom)) {
+            const top = sdf_px[index(x, y - 1, sdf_w, channels)..][0..3];
+            if (hasLinearArtifact(vert_span, is_protected, median_current, current, top)) {
                 current_stencil.err = true;
                 continue;
             }
         }
 
         if (x < sdf_w - 1) {
-            const right_idx = y * sdf_w * channels + (x + 1) * channels;
-            const right = sdf_px[right_idx .. right_idx + 3];
-
+            const right = sdf_px[index(x + 1, y, sdf_w, channels)..][0..3];
             if (hasLinearArtifact(hori_span, is_protected, median_current, current, right)) {
                 current_stencil.err = true;
                 continue;
             }
 
             if (y > 0) {
-                const bottom_idx = (y - 1) * sdf_w * channels + x * channels;
-                const bottom = sdf_px[bottom_idx .. bottom_idx + 3];
-                const top_right_idx = (y - 1) * sdf_w * channels + (x + 1) * channels;
-                const top_right = sdf_px[top_right_idx .. top_right_idx + 3];
-                if (hasDiagonalArtifact(diag_span, is_protected, median_current, current, right, bottom, top_right)) {
+                const top = sdf_px[index(x, y - 1, sdf_w, channels)..][0..3];
+                const top_right = sdf_px[index(x + 1, y - 1, sdf_w, channels)..][0..3];
+                if (hasDiagonalArtifact(diag_span, is_protected, median_current, current, right, top, top_right)) {
                     current_stencil.err = true;
                     continue;
                 }
             }
 
             if (y < sdf_h - 1) {
-                const top_idx = (y + 1) * sdf_w * channels + x * channels;
-                const top = sdf_px[top_idx .. top_idx + 3];
-                const bottom_right_idx = (y + 1) * sdf_w * channels + (x + 1) * channels;
-                const bottom_right = sdf_px[bottom_right_idx .. bottom_right_idx + 3];
-                if (hasDiagonalArtifact(diag_span, is_protected, median_current, current, right, top, bottom_right)) {
+                const bottom = sdf_px[index(x, y + 1, sdf_w, channels)..][0..3];
+                const bottom_right = sdf_px[index(x + 1, y + 1, sdf_w, channels)..][0..3];
+                if (hasDiagonalArtifact(diag_span, is_protected, median_current, current, right, bottom, bottom_right)) {
                     current_stencil.err = true;
                     continue;
                 }
@@ -474,9 +464,8 @@ fn findErrors(
         }
 
         if (y < sdf_h - 1) {
-            const top_idx = (y + 1) * sdf_w * channels + x * channels;
-            const top = sdf_px[top_idx .. top_idx + 3];
-            if (hasLinearArtifact(vert_span, is_protected, median_current, current, top)) {
+            const bottom = sdf_px[index(x, y + 1, sdf_w, channels)..][0..3];
+            if (hasLinearArtifact(vert_span, is_protected, median_current, current, bottom)) {
                 current_stencil.err = true;
                 continue;
             }
@@ -485,15 +474,9 @@ fn findErrors(
 }
 
 fn apply(self: *ErrorCorrection, sdf_px: []f64, sdf_w: u16, sdf_h: u16, channels: u8) void {
-    const texel_count = sdf_w * sdf_h;
-    var stencil_idx: usize = 0;
-    var sdf_idx: usize = 0;
-    for (0..texel_count) |_| {
-        if (self.stencil[stencil_idx].err) {
-            const m = median(sdf_px[sdf_idx], sdf_px[sdf_idx + 1], sdf_px[sdf_idx + 2]);
-            inline for (.{ 0, 1, 2 }) |i| sdf_px[sdf_idx + i] = m;
-        }
-        stencil_idx += 1;
-        sdf_idx += channels;
-    }
+    for (0..sdf_w * sdf_h) |i| if (self.stencil[i].err) {
+        const msdf = sdf_px[i * channels ..][0..3];
+        const msdf_median = msdfMedian(msdf);
+        @memset(msdf, msdf_median);
+    };
 }
