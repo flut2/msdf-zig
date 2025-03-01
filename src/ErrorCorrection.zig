@@ -24,8 +24,8 @@ pub const Options = struct {
     mode: Mode = .edge_priority,
     /// The distance checking will be forcefully turned off (set to ``.none``) if the scanline pass is enabled
     distance_mode: DistanceMode = .none,
-    min_deviation_ratio: f64 = 1.11111111111111111,
-    min_improve_ratio: f64 = 1.11111111111111111,
+    min_deviation_ratio: f64 = 10.0 / 9.0,
+    min_improve_ratio: f64 = 10.0 / 9.0,
 };
 
 const StencilFlag = packed struct {
@@ -476,7 +476,6 @@ fn findErrors(
 fn apply(self: *ErrorCorrection, sdf_px: []f64, sdf_w: u16, sdf_h: u16, channels: u8) void {
     for (0..sdf_w * sdf_h) |i| if (self.stencil[i].err) {
         const msdf = sdf_px[i * channels ..][0..3];
-        const msdf_median = msdfMedian(msdf);
-        @memset(msdf, msdf_median);
+        @memset(msdf, msdfMedian(msdf));
     };
 }
