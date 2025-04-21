@@ -394,7 +394,7 @@ fn zstbiMalloc(size: usize) callconv(.C) ?*anyopaque {
 
     const mem = mem_allocator.?.alignedAlloc(
         u8,
-        mem_alignment,
+        .fromByteUnits(mem_alignment),
         size,
     ) catch @panic("zstbi: out of memory");
 
