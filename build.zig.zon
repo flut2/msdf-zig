@@ -9,16 +9,11 @@
         "build.zig.zon",
     },
     .dependencies = .{
-        .zstbi = .{ .path = "zstbi" },
-        .mach_freetype = .{
-            .url = "git+https://github.com/hexops/mach-freetype.git#d63efa5534c17f3a12ed3d327e0ad42a64adc20a",
-            .hash = "mach_freetype-0.0.0-AAAAALwUAgCt_Mzj28Tk-oZQ_a7BEKZ29rihRi7W70Io",
-            .lazy = true,
-        },
+        .zstbi = .{ .path = "libs/zstbi" },
+        .mach_freetype = .{ .path = "libs/mach-freetype" },
         .turbopack = .{
-            .url = "git+https://github.com/flut2/turbopack.git#afeb5e792e19043aea738ff0315e07047dc64dd6",
-            .hash = "turbopack-1.0.0-AAAAAMkbAABDb3-75IhvmDExKOL8ApG7qAEilCnorQo9",
-            .lazy = true,
+            .url = "git+https://github.com/flut2/turbopack.git#8fc71a37a798bcf31ab0bd65d7e3089d1569bc35",
+            .hash = "turbopack-1.0.0-rSxRjjsfAACcX7QYHoziFhTQPaHid-inIg_X2NEo4QIQ",
         },
     },
 }

@@ -108,7 +108,7 @@ const FreetypeContext = struct {
 library: ft.Library = undefined,
 face: ft.Face = undefined,
 
-/// ``font_memory`` is the raw font file data
+/// `font_memory` is the raw font file data
 pub fn create(font_memory: []const u8) !Generator {
     var library: ft.Library = try .init();
     return .{
@@ -132,7 +132,7 @@ pub fn fontMetrics(self: *Generator) !FontMetrics {
     };
 }
 
-/// The result is under the caller's ownership (call ``deinit()`` or deallocate fields manually)
+/// The result is under the caller's ownership (call `deinit()` or deallocate fields manually)
 pub fn generateSingle(
     self: *Generator,
     allocator: std.mem.Allocator,
@@ -208,7 +208,7 @@ pub fn generateSingle(
     };
 }
 
-/// The result is under the caller's ownership (call ``deinit()`` or deallocate fields manually)
+/// The result is under the caller's ownership (call `deinit()` or deallocate fields manually)
 pub fn generateAtlas(
     self: *Generator,
     allocator: std.mem.Allocator,
@@ -667,7 +667,7 @@ fn generateMtsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px
     }
 }
 
-fn ftMoveTo(to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.C) i32 {
+fn ftMoveTo(to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.c) i32 {
     var context: *FreetypeContext = @alignCast(@ptrCast(ud));
     if (!(context.contour != null and context.contour.?.edges.items.len == 0)) {
         context.contour = context.shape.contours.addOne(context.allocator) catch return ft.c.FT_Err_Out_Of_Memory;
@@ -677,7 +677,7 @@ fn ftMoveTo(to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.C) i32 {
     return 0;
 }
 
-fn ftLineTo(to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.C) i32 {
+fn ftLineTo(to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.c) i32 {
     var context: *FreetypeContext = @alignCast(@ptrCast(ud));
     const endpoint: Vec2 = .{ .x = f64i(to.*.x) * context.scale, .y = f64i(to.*.y) * context.scale };
     if (!endpoint.eql(context.pos)) {
@@ -690,7 +690,7 @@ fn ftLineTo(to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.C) i32 {
     return 0;
 }
 
-fn ftConicTo(control: [*c]const ft.Vector, to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.C) i32 {
+fn ftConicTo(control: [*c]const ft.Vector, to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.c) i32 {
     var context: *FreetypeContext = @alignCast(@ptrCast(ud));
     const endpoint: Vec2 = .{ .x = f64i(to.*.x) * context.scale, .y = f64i(to.*.y) * context.scale };
     if (!endpoint.eql(context.pos)) {
@@ -706,7 +706,7 @@ fn ftConicTo(control: [*c]const ft.Vector, to: [*c]const ft.Vector, ud: ?*anyopa
     return 0;
 }
 
-fn ftCubicTo(control1: [*c]const ft.Vector, control2: [*c]const ft.Vector, to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.C) i32 {
+fn ftCubicTo(control1: [*c]const ft.Vector, control2: [*c]const ft.Vector, to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.c) i32 {
     var context: *FreetypeContext = @alignCast(@ptrCast(ud));
     const endpoint: Vec2 = .{ .x = f64i(to.*.x) * context.scale, .y = f64i(to.*.y) * context.scale };
     const scaled_c1: Vec2 = .{ .x = f64i(control1.*.x) * context.scale, .y = f64i(control1.*.y) * context.scale };

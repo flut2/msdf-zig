@@ -1,0 +1,20 @@
+.{
+    .fingerprint = 0x9ab3600067a853db,
+    .name = .mach_freetype,
+    .version = "0.1.0",
+    .paths = .{
+        "examples",
+        "src",
+        "build.zig",
+        "build.zig.zon",
+        "LICENSE",
+        "LICENSE-APACHE",
+        "LICENSE-MIT",
+        "LICENSE.freetype",
+        "README.md",
+    },
+    .dependencies = .{
+        .freetype = .{ .path = "../freetype" },
+        .harfbuzz = .{ .path = "../harfbuzz" },
+    },
+}

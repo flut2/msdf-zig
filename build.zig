@@ -5,21 +5,25 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
 
     const msdf_zig_mod = b.addModule("msdf-zig", .{ .root_source_file = b.path("src/Generator.zig") });
-    if (b.lazyDependency("mach_freetype", .{
+    const freetype_dep = b.dependency("mach_freetype", .{
         .optimize = optimize,
         .target = target,
-    })) |dep| msdf_zig_mod.addImport("mach-freetype", dep.module("mach-freetype"));
+    });
+    msdf_zig_mod.addImport("mach-freetype", freetype_dep.module("mach-freetype"));
 
-    if (b.lazyDependency("turbopack", .{
+    const turbopack_dep = b.dependency("turbopack", .{
         .target = target,
         .optimize = optimize,
-    })) |dep| msdf_zig_mod.addImport("turbopack", dep.module("turbopack"));
+    });
+    msdf_zig_mod.addImport("turbopack", turbopack_dep.module("turbopack"));
 
     const exe = b.addExecutable(.{
         .name = "Example",
-        .root_source_file = b.path("example/generate.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("example/generate.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     exe.root_module.link_libc = true;
     exe.root_module.addImport("msdf-zig", msdf_zig_mod);
