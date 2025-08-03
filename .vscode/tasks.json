@@ -7,6 +7,9 @@
             "label": "Debug",
             "type": "shell",
             "command": "zig build -Doptimize=Debug -freference-trace",
+            "options": {
+                "cwd": "${workspaceFolder}/example"
+            },
         },
     ]
 }

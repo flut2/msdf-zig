@@ -42,12 +42,12 @@ pub fn main() !void {
         metrics.line_height,
     });
 
-    const px_size = 64;
-    const gen_opts: Generator.GenerationOptions = .{ .sdf_type = .mtsdf, .px_size = px_size, .px_range = 8 };
+    const gen_opts: Generator.GenerationOptions = .{ .sdf_type = .mtsdf, .px_size = 64, .px_range = 8 };
 
-    inline for (.{ 'A', 'S', 'g' }) |codepoint| {
+    inline for (.{ 'A', 'B', 'C' }) |codepoint| {
         const data = try gen.generateSingle(allocator, codepoint, gen_opts);
         defer data.deinit(allocator);
+
         std.log.info(
             \\Single Glyph Data for "{u}":
             \\Advance: {d:.2}

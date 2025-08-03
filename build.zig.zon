@@ -4,12 +4,12 @@
     .version = "1.0.0",
     .paths = .{
         "LICENSE",
+        "libs",
         "src",
         "build.zig",
         "build.zig.zon",
     },
     .dependencies = .{
-        .zstbi = .{ .path = "libs/zstbi" },
         .mach_freetype = .{ .path = "libs/mach-freetype" },
         .turbopack = .{
             .url = "git+https://github.com/flut2/turbopack.git#8fc71a37a798bcf31ab0bd65d7e3089d1569bc35",

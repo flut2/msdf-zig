@@ -5,9 +5,9 @@
             "name": "Debug",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/zig-out/bin/Example",
+            "program": "${workspaceFolder}/example/zig-out/bin/Example",
             "args": [],
-            "cwd": "${workspaceFolder}/zig-out/bin",
+            "cwd": "${workspaceFolder}/example/zig-out/bin",
             "preLaunchTask": "Debug"
         },
     ]

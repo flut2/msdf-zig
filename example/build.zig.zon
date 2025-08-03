@@ -1,0 +1,16 @@
+.{
+    .fingerprint = 0xc8e298b963b48ce4,
+    .name = .msdf_zig_example,
+    .version = "1.0.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "generate.zig",
+        "OFL.txt",
+        "OpenSans-Bold.ttf",
+    },
+    .dependencies = .{
+        .zstbi = .{ .path = "libs/zstbi" },
+        .msdf_zig = .{ .path = ".." },
+    },
+}
