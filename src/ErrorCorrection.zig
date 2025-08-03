@@ -22,7 +22,7 @@ pub const Mode = enum { indiscriminate, edge_priority, edge_only };
 pub const DistanceMode = enum { none, at_edge, always };
 pub const Options = struct {
     mode: Mode = .edge_priority,
-    /// The distance checking will be forcefully turned off (set to ``.none``) if the scanline pass is enabled
+    /// The distance checking will be forcefully turned off (set to `.none`) if the scanline pass is enabled
     distance_mode: DistanceMode = .none,
     min_deviation_ratio: f64 = 10.0 / 9.0,
     min_improve_ratio: f64 = 10.0 / 9.0,

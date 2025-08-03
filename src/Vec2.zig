@@ -1,7 +1,13 @@
+const std = @import("std");
+
 const Vec2 = @This();
 
 x: f64 = 0.0,
 y: f64 = 0.0,
+
+pub fn format(self: Vec2, writer: *std.io.Writer) std.io.Writer.Error!void {
+    try writer.print("[x={d:.2}, y={d:.2}]", .{ self.x, self.y });
+}
 
 pub fn lengthSqr(self: Vec2) f64 {
     return self.x * self.x + self.y * self.y;
@@ -24,9 +30,9 @@ pub fn ortho(self: Vec2, polarity: bool) Vec2 {
 pub fn orthonormal(self: Vec2, polarity: bool, allow_zero: bool) Vec2 {
     const len = self.length();
     if (len != 0.0) return if (polarity) .{ .x = -self.y / len, .y = self.x / len } else .{ .x = self.y / len, .y = -self.x / len };
-    return if (polarity) 
-        .{ .y = @floatFromInt(@intFromBool(!allow_zero)) } 
-    else 
+    return if (polarity)
+        .{ .y = @floatFromInt(@intFromBool(!allow_zero)) }
+    else
         .{ .y = -@as(f64, @floatFromInt(@intFromBool(!allow_zero))) };
 }
 

@@ -19,24 +19,12 @@ pub const Bounds = struct {
 
 contours: std.ArrayListUnmanaged(Contour) = .empty,
 
-pub fn print(self: Shape) void {
+pub fn format(self: Shape, writer: *std.io.Writer) std.io.Writer.Error!void {
+    try writer.print("Number of contours: {}\n", .{self.contours.items.len});
     for (self.contours.items, 0..) |contour, i| {
-        std.log.info("Contour {}: [", .{i});
-        for (contour.edges.items, 0..) |edge, j| switch (edge.segment) {
-            .linear => |p| std.log.info(
-                "Edge {}: linear [x1={d:.2},y1={d:.2},x2={d:.2},y2={d:.2}]",
-                .{ j, p[0].x, p[0].y, p[1].x, p[1].y },
-            ),
-            .quadratic_bezier => |p| std.log.info(
-                "Edge {}: quadratic [x1={d:.2},y1={d:.2},x2={d:.2},y2={d:.2},x3={d:.2},y3={d:.2}]",
-                .{ j, p[0].x, p[0].y, p[1].x, p[1].y, p[2].x, p[2].y },
-            ),
-            .cubic_bezier => |p| std.log.info(
-                "Edge {}: cubic [x1={d:.2},y1={d:.2},x2={d:.2},y2={d:.2},x3={d:.2},y3={d:.2},x4={d:.2},y4={d:.2}]",
-                .{ j, p[0].x, p[0].y, p[1].x, p[1].y, p[2].x, p[2].y, p[3].x, p[3].y },
-            ),
-        };
-        std.log.info("];", .{});
+        try writer.print("Contour {}: [\n", .{i});
+        for (contour.edges.items, 0..) |edge, j| try writer.print(" Edge {}: {f}\n", .{ j, edge });
+        try writer.print("];\n", .{});
     }
 }
 

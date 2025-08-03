@@ -20,9 +20,17 @@ segment: union(enum) {
     cubic_bezier: [4]Vec2,
 } = .{ .linear = @splat(.{ .x = 0.0, .y = 0.0 }) },
 
+pub fn format(self: EdgeSegment, writer: *std.io.Writer) std.io.Writer.Error!void {
+    switch (self.segment) {
+        .linear => |vals| try writer.print("linear, color={t}, p1={f}, p2={f}", .{ self.color, vals[0], vals[1] }),
+        .quadratic_bezier => |vals| try writer.print("quadratic, color={t}, p1={f}, p2={f}, p3={f}", .{ self.color, vals[0], vals[1], vals[2] }),
+        .cubic_bezier => |vals| try writer.print("cubic, color={t}, p1={f}, p2={f}, p3={f}, p4={f}", .{ self.color, vals[0], vals[1], vals[2], vals[3] }),
+    }
+}
+
 pub fn create(p0: Vec2, p1: Vec2, p2: ?Vec2, p3: ?Vec2, color: EdgeColor) EdgeSegment {
     if (p3 != null) {
-        if (p2 == null) @panic("Invalid parameters, you need to specify ``p2`` if you specify ``p3``.");
+        if (p2 == null) @panic("Invalid parameters, you need to specify `p2` if you specify `p3`.");
 
         var p12: Vec2 = p2.?.sub(p1);
         if (p1.sub(p0).cross(p12) == 0.0 and p12.cross(p3.?.sub(p2.?)) == 0.0)
