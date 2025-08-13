@@ -20,7 +20,7 @@ pub const FillRule = enum {
     negative,
 };
 
-intersections: std.ArrayListUnmanaged(Intersection) = .empty,
+intersections: std.ArrayList(Intersection) = .empty,
 last_index: u32 = 0,
 
 pub fn interpretFillRule(intersections: i32, fill_rule: FillRule) bool {

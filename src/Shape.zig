@@ -17,7 +17,7 @@ pub const Bounds = struct {
     top: f64 = 0.0,
 };
 
-contours: std.ArrayListUnmanaged(Contour) = .empty,
+contours: std.ArrayList(Contour) = .empty,
 
 pub fn format(self: Shape, writer: *std.io.Writer) std.io.Writer.Error!void {
     try writer.print("Number of contours: {}\n", .{self.contours.items.len});
@@ -121,9 +121,9 @@ pub fn orientContours(self: *Shape, allocator: std.mem.Allocator) !void {
     };
 
     const ratio = 0.5 * (@sqrt(5.0) - 1);
-    var intersections: std.ArrayListUnmanaged(Intersection) = .empty;
+    var intersections: std.ArrayList(Intersection) = .empty;
     defer intersections.deinit(allocator);
-    var orientations: std.ArrayListUnmanaged(i32) = .empty;
+    var orientations: std.ArrayList(i32) = .empty;
     defer orientations.deinit(allocator);
     const contours_len = self.contours.items.len;
     try orientations.ensureTotalCapacity(allocator, contours_len);

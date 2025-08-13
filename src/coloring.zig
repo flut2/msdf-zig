@@ -18,7 +18,7 @@ fn isCorner(a: Vec2, b: Vec2, cross_threshold: f64) bool {
 pub fn simple(allocator: std.mem.Allocator, shape: *Shape, angle_threshold: f64) !void {
     const cross_threshold = @sin(angle_threshold);
     var color: EdgeColor = .init();
-    var corners: std.ArrayListUnmanaged(u32) = .empty;
+    var corners: std.ArrayList(u32) = .empty;
     defer corners.deinit(allocator);
     for (shape.contours.items) |*contour| {
         if (contour.edges.items.len == 0) continue;

@@ -5,7 +5,7 @@ const EdgeSegment = @import("EdgeSegment.zig");
 const math = @import("math.zig");
 const Vec2 = @import("Vec2.zig");
 
-edges: std.ArrayListUnmanaged(EdgeSegment) = .empty,
+edges: std.ArrayList(EdgeSegment) = .empty,
 
 pub fn shoelace(a: Vec2, b: Vec2) f64 {
     return (b.x - a.x) * (a.y + b.y);
