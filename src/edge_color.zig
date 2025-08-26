@@ -19,32 +19,27 @@ pub const EdgeColor = enum(u8) {
         return two_channel[rng.next() % two_channel.len];
     }
 
+    fn channelValuesWithExcl(excl: EdgeColor, base_vals: anytype) [2]EdgeColor {
+        var ret: [2]EdgeColor = undefined;
+        var i: usize = 0;
+        for (base_vals) |c| if (c != excl) {
+            ret[i] = c;
+            i += 1;
+        };
+        return ret;
+    }
+
     pub fn random(self: *EdgeColor) void {
+        const T = EdgeColor;
         switch (self.*) {
             .black, .white => return,
-            .red => {
-                const one_channel_minus_red: [2]EdgeColor = .{ .green, .blue };
-                self.* = one_channel_minus_red[rng.next() % one_channel_minus_red.len];
-            },
-            .green => {
-                const one_channel_minus_green: [2]EdgeColor = .{ .blue, .red };
-                self.* = one_channel_minus_green[rng.next() % one_channel_minus_green.len];
-            },
-            .blue => {
-                const one_channel_minus_blue: [2]EdgeColor = .{ .red, .green };
-                self.* = one_channel_minus_blue[rng.next() % one_channel_minus_blue.len];
-            },
-            .yellow => {
-                const two_channel_minus_yellow: [2]EdgeColor = .{ .cyan, .magenta };
-                self.* = two_channel_minus_yellow[rng.next() % two_channel_minus_yellow.len];
-            },
-            .magenta => {
-                const two_channel_minus_magenta: [2]EdgeColor = .{ .yellow, .cyan };
-                self.* = two_channel_minus_magenta[rng.next() % two_channel_minus_magenta.len];
-            },
-            .cyan => {
-                const two_channel_minus_cyan: [2]EdgeColor = .{ .magenta, .yellow };
-                self.* = two_channel_minus_cyan[rng.next() % two_channel_minus_cyan.len];
+            inline else => |c| {
+                const vals_with_excl = comptime channelValuesWithExcl(c, switch (c) {
+                    .red, .green, .blue => .{ T.red, T.green, T.blue },
+                    .cyan, .magenta, .yellow => .{ T.cyan, T.magenta, T.yellow },
+                    else => unreachable,
+                });
+                self.* = vals_with_excl[rng.next() % vals_with_excl.len];
             },
         }
     }

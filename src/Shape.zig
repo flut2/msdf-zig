@@ -4,7 +4,8 @@ const Contour = @import("Contour.zig");
 const EdgeSegment = @import("EdgeSegment.zig");
 const math = @import("math.zig");
 const Scanline = @import("Scanline.zig");
-const Vec2 = @import("Vec2.zig");
+
+const Vec2 = @Vector(2, f64);
 
 const deconverge_overshoot = 1.11111111111111111;
 const corner_dot_epsilon = 0.000001;
@@ -33,7 +34,7 @@ pub fn validate(self: Shape) bool {
         var corner = contour.edges.getLast().point(1);
         for (contour.edges.items) |edge| {
             const p0 = edge.point(0);
-            if (!p0.eql(corner)) return false;
+            if (!std.meta.eql(p0, corner)) return false;
             corner = edge.point(1);
         }
     };
@@ -45,22 +46,23 @@ pub fn normalize(self: *Shape, allocator: std.mem.Allocator) !void {
     for (self.contours.items) |*contour| {
         if (contour.edges.items.len == 1) {
             var parts: [3]EdgeSegment = @splat(.{});
-            contour.edges.items[0].splitInThirds(&parts[0], &parts[1], &parts[2]);
+            contour.edges.items[0].splitInThirds(&parts);
             contour.edges.clearRetainingCapacity();
             try contour.edges.appendSlice(allocator, &parts);
         } else {
             var prev_edge = &contour.edges.items[contour.edges.items.len - 1];
             for (contour.edges.items) |*edge| {
-                var prev_dir = prev_edge.direction(1).normal(false);
-                const cur_dir = edge.direction(0).normal(false);
-                if (prev_dir.dot(cur_dir) < corner_dot_epsilon - 1) {
+                const prev_dir = math.normal(prev_edge.direction(1), true);
+                const cur_dir = math.normal(edge.direction(0), true);
+                if (math.dot(prev_dir, cur_dir) < corner_dot_epsilon - 1) {
                     const factor = deconverge_overshoot *
                         @sqrt(1 - (corner_dot_epsilon - 1) * (corner_dot_epsilon - 1)) / (corner_dot_epsilon - 1);
-                    var axis = cur_dir.sub(prev_dir).normal(false).mul(factor);
-                    if (prev_edge.directionChange(1).cross(edge.direction(0)) + (edge.directionChange(0).cross(prev_edge.direction(1))) < 0)
-                        axis = axis.mul(-1.0);
-                    prev_edge.deconverge(1, axis.ortho(true));
-                    edge.deconverge(0, axis.ortho(false));
+                    var axis = math.normal(cur_dir - prev_dir, true) * math.v2(factor);
+                    if (math.cross(prev_edge.directionChange(1), edge.direction(0)) +
+                        math.cross(edge.directionChange(0), prev_edge.direction(1)) < 0)
+                        axis *= math.v2(-1.0);
+                    prev_edge.deconverge(1, math.ortho(axis, true));
+                    edge.deconverge(0, math.ortho(axis, false));
                 }
                 prev_edge = edge;
             }
@@ -78,7 +80,12 @@ pub fn boundMiters(self: Shape, l: *f64, b: *f64, r: *f64, t: *f64, border: f64,
 
 pub fn getBounds(self: Shape, border: f64, miter_limit: f64, polarity: i32) Bounds {
     const large_value = 1e240;
-    var bounds: Bounds = .{ .left = large_value, .bottom = large_value, .right = -large_value, .top = -large_value };
+    var bounds: Bounds = .{
+        .left = large_value,
+        .bottom = large_value,
+        .right = -large_value,
+        .top = -large_value,
+    };
     self.bound(&bounds.left, &bounds.bottom, &bounds.right, &bounds.top);
     if (border > 0) {
         bounds.left -= border;
@@ -130,10 +137,10 @@ pub fn orientContours(self: *Shape, allocator: std.mem.Allocator) !void {
     try orientations.appendNTimes(allocator, 0, contours_len);
     for (0..contours_len) |i| {
         if (orientations.items[i] == 0 or self.contours.items[i].edges.items.len == 0) continue;
-        const y0 = self.contours.items[i].edges.items[0].point(0).y;
+        const y0 = self.contours.items[i].edges.items[0].point(0)[1];
         var y1 = y0;
-        for (self.contours.items[i].edges.items) |edge| y1 = edge.point(1).y;
-        for (self.contours.items[i].edges.items) |edge| y1 = edge.point(ratio).y;
+        for (self.contours.items[i].edges.items) |edge| y1 = edge.point(1)[1];
+        for (self.contours.items[i].edges.items) |edge| y1 = edge.point(ratio)[1];
         const y = math.mix(y0, y1, ratio);
         var x: [3]f64 = @splat(0.0);
         var dy: [3]i32 = @splat(0);

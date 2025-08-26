@@ -4,10 +4,9 @@ const EdgeColor = @import("edge_color.zig").EdgeColor;
 const equations = @import("equations.zig");
 const f64i = @import("Generator.zig").f64i;
 const math = @import("math.zig");
-const mix = math.mix;
-const median = math.median;
 const Shape = @import("Shape.zig");
-const Vec2 = @import("Vec2.zig");
+
+const Vec2 = @Vector(2, f64);
 
 const ErrorCorrection = @This();
 
@@ -85,14 +84,15 @@ pub fn applyProtections(
 pub fn protectCorners(self: *ErrorCorrection, shape: *Shape, scale: f64, tx: f64, ty: f64) void {
     for (shape.contours.items) |contour| {
         if (contour.edges.items.len == 0) continue;
+
         var prev_edge = contour.edges.getLast();
         for (contour.edges.items) |edge| {
             const common_color = @intFromEnum(prev_edge.color) & @intFromEnum(edge.color);
             prev_edge = edge;
             if ((common_color & (common_color - 1)) == 0) continue;
-            const base_point = edge.point(0).mul(scale).add(Vec2{ .x = tx, .y = ty });
-            const left: i32 = @intFromFloat(base_point.x - 0.5);
-            const bottom: i32 = @intFromFloat(f64i(self.stencil_h) - base_point.y - 0.5 - 2.0);
+            const base_point = edge.point(0) * math.v2(scale) + Vec2{ tx, ty };
+            const left: i32 = @intFromFloat(base_point[0] - 0.5);
+            const bottom: i32 = @intFromFloat(f64i(self.stencil_h) - base_point[1] - 0.5 - 2.0);
             const right = left + 1;
             const top = bottom + 1;
             if (left < self.stencil_w and bottom < self.stencil_h and right >= 0 and top >= 0) {
@@ -117,15 +117,14 @@ fn edgeBetweenTexelsChannel(a: *const [3]f64, b: *const [3]f64, channel: u8) boo
     const delta = a[channel] - b[channel];
     if (delta == 0.0) return false;
     const t = (a[channel] - 0.5) / delta;
-    if (t > 0 and t < 1) {
-        const c: [3]f64 = .{
-            mix(a[0], b[0], t),
-            mix(a[1], b[1], t),
-            mix(a[2], b[2], t),
-        };
-        return median(c[0], c[1], c[2]) == c[channel];
-    }
-    return false;
+    if (t < 0 or t > 1) return false;
+
+    const c: [3]f64 = .{
+        math.mix(a[0], b[0], t),
+        math.mix(a[1], b[1], t),
+        math.mix(a[2], b[2], t),
+    };
+    return math.median(c[0], c[1], c[2]) == c[channel];
 }
 
 fn edgeBetweenTexels(a: *const [3]f64, b: *const [3]f64) u32 {
@@ -142,7 +141,7 @@ fn protectExtremeChannels(stencil_point: *StencilFlag, msd: *const [3]f64, m: f6
 }
 
 fn msdfMedian(msdf: *const [3]f64) f64 {
-    return median(msdf[0], msdf[1], msdf[2]);
+    return math.median(msdf[0], msdf[1], msdf[2]);
 }
 
 fn protectEdges(
@@ -154,7 +153,8 @@ fn protectEdges(
     sdf_h: u16,
     channels: u8,
 ) void {
-    const hori_radius = (Vec2{ .x = px_range, .y = 0 }).div(scale).length() * protection_radius_tolerance;
+    const vscale = math.v2(scale);
+    const hori_radius = math.length(Vec2{ px_range, 0.0 } / vscale) * protection_radius_tolerance;
     for (0..sdf_h) |y| for (0..sdf_w - 1) |x| {
         const left = sdf_px[index(0, y, sdf_w, channels)..][0..3];
         const right = sdf_px[index(1, y, sdf_w, channels)..][0..3];
@@ -167,7 +167,7 @@ fn protectEdges(
         }
     };
 
-    const vert_radius = (Vec2{ .x = 0, .y = px_range }).div(scale).length() * protection_radius_tolerance;
+    const vert_radius = math.length(Vec2{ 0.0, px_range } / vscale) * protection_radius_tolerance;
     for (0..sdf_h - 1) |y| for (0..sdf_w) |x| {
         const bottom = sdf_px[index(0, y, sdf_w, channels)..][0..3];
         const top = sdf_px[index(0, y + 1, sdf_w, channels)..][0..3];
@@ -180,7 +180,7 @@ fn protectEdges(
         }
     };
 
-    const diag_radius = (Vec2{ .x = px_range, .y = px_range }).div(scale).length() * protection_radius_tolerance;
+    const diag_radius = math.length(math.v2(px_range) / vscale) * protection_radius_tolerance;
     for (0..sdf_h - 1) |y| for (0..sdf_w - 1) |x| {
         const bottom_left = sdf_px[index(0, y, sdf_w, channels)..][0..3];
         const bottom_right = sdf_px[index(1, y, sdf_w, channels)..][0..3];
@@ -208,15 +208,15 @@ fn protectAll(self: *ErrorCorrection) void {
 }
 
 fn interpolatedMedianLinear(a: *const [3]f64, b: *const [3]f64, t: f64) f64 {
-    return median(
-        mix(a[0], b[0], t),
-        mix(a[1], b[1], t),
-        mix(a[2], b[2], t),
+    return math.median(
+        math.mix(a[0], b[0], t),
+        math.mix(a[1], b[1], t),
+        math.mix(a[2], b[2], t),
     );
 }
 
 fn interpolatedMedianBilinear(a: *const [3]f64, l: *const [3]f64, q: *const [3]f64, t: f64) f64 {
-    return median(
+    return math.median(
         t * (t * q[0] + l[0]) + a[0],
         t * (t * q[1] + l[1]) + a[1],
         t * (t * q[2] + l[2]) + a[2],
@@ -226,7 +226,7 @@ fn interpolatedMedianBilinear(a: *const [3]f64, l: *const [3]f64, q: *const [3]f
 fn rangeTest(span: f64, protected: bool, at: f64, bt: f64, xt: f64, am: f64, bm: f64, xm: f64) ClassifierFlag {
     if ((am > 0.5 and bm > 0.5 and xm <= 0.5) or
         (am < 0.5 and bm < 0.5 and xm >= 0.5) or
-        (!protected and median(am, bm, xm) != xm))
+        (!protected and math.median(am, bm, xm) != xm))
     {
         const ax_span = (xt - at) * span;
         const bx_span = (bt - xt) * span;
@@ -307,14 +307,14 @@ fn hasDiagonalArtifactInner(
 }
 
 fn hasLinearArtifact(span: f64, protected: bool, am: f64, a: *const [3]f64, b: *const [3]f64) bool {
-    const bm = median(b[0], b[1], b[2]);
+    const bm = math.median(b[0], b[1], b[2]);
     return (@abs(am - 0.5) >= @abs(bm - 0.5) and (hasLinearArtifactInner(span, protected, am, bm, a, b, a[1] - a[0], b[1] - b[0]) or
         hasLinearArtifactInner(span, protected, am, bm, a, b, a[2] - a[1], b[2] - b[1]) or
         hasLinearArtifactInner(span, protected, am, bm, a, b, a[0] - a[2], b[0] - b[2])));
 }
 
 fn hasDiagonalArtifact(span: f64, protected: bool, am: f64, a: *const [3]f64, b: *const [3]f64, c: *const [3]f64, d: *const [3]f64) bool {
-    const dm = median(d[0], d[1], d[2]);
+    const dm = math.median(d[0], d[1], d[2]);
     if (@abs(am - 0.5) >= @abs(dm - 0.5)) {
         const abc: [3]f64 = .{
             a[0] - b[0] - c[0],
@@ -393,9 +393,10 @@ fn findErrors(
     channels: u8,
 ) void {
     const min_deviation_ratio = self.options.min_deviation_ratio;
-    const hori_span = (Vec2{ .x = px_range, .y = 0 }).div(scale).length() * min_deviation_ratio;
-    const vert_span = (Vec2{ .x = 0, .y = px_range }).div(scale).length() * min_deviation_ratio;
-    const diag_span = (Vec2{ .x = px_range, .y = px_range }).div(scale).length() * min_deviation_ratio;
+    const vscale = math.v2(scale);
+    const hori_span = math.length(Vec2{ px_range, 0.0 } / vscale) * min_deviation_ratio;
+    const vert_span = math.length(Vec2{ 0.0, px_range } / vscale) * min_deviation_ratio;
+    const diag_span = math.length(math.v2(px_range) / vscale) * min_deviation_ratio;
 
     for (0..sdf_h) |y| for (0..sdf_w) |x| {
         const current = sdf_px[index(x, y, sdf_w, channels)..][0..3];

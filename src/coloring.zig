@@ -1,10 +1,11 @@
 const std = @import("std");
 
-const Shape = @import("Shape.zig");
-const Vec2 = @import("Vec2.zig");
 const EdgeColor = @import("edge_color.zig").EdgeColor;
 const EdgeSegment = @import("EdgeSegment.zig");
+const math = @import("math.zig");
+const Shape = @import("Shape.zig");
 
+const Vec2 = @Vector(2, f64);
 fn symmetricalTrichotomy(pos: usize, n: usize) i32 {
     const fpos: f64 = @floatFromInt(pos);
     const fn1: f64 = @floatFromInt(n - 1);
@@ -12,10 +13,10 @@ fn symmetricalTrichotomy(pos: usize, n: usize) i32 {
 }
 
 fn isCorner(a: Vec2, b: Vec2, cross_threshold: f64) bool {
-    return a.dot(b) <= 0 or @abs(a.cross(b)) > cross_threshold;
+    return math.dot(a, b) <= 0 or @abs(math.cross(a, b)) > cross_threshold;
 }
 
-pub fn simple(allocator: std.mem.Allocator, shape: *Shape, angle_threshold: f64) !void {
+pub fn colorShape(allocator: std.mem.Allocator, shape: *Shape, angle_threshold: f64) !void {
     const cross_threshold = @sin(angle_threshold);
     var color: EdgeColor = .init();
     var corners: std.ArrayList(u32) = .empty;
@@ -26,7 +27,7 @@ pub fn simple(allocator: std.mem.Allocator, shape: *Shape, angle_threshold: f64)
         corners.clearRetainingCapacity();
         var prev_dir = contour.edges.getLast().direction(1);
         for (contour.edges.items, 0..) |edge, i| {
-            if (isCorner(prev_dir.normal(false), edge.direction(0).normal(false), cross_threshold))
+            if (isCorner(math.normal(prev_dir, true), math.normal(edge.direction(0), true), cross_threshold))
                 try corners.append(allocator, @intCast(i));
             prev_dir = edge.direction(1);
         }
@@ -38,26 +39,25 @@ pub fn simple(allocator: std.mem.Allocator, shape: *Shape, angle_threshold: f64)
             },
             1 => {
                 var colors: [3]EdgeColor = .{ .black, .white, .black };
-                color.random();
-                colors[0] = color;
-                color.random();
-                colors[2] = color;
+                inline for (.{ 0, 2 }) |i| {
+                    color.random();
+                    colors[i] = color;
+                }
                 const corner = corners.items[0];
+                const corner_idx = 3 * corner;
                 const edges_len = contour.edges.items.len;
                 if (edges_len >= 3) {
                     for (contour.edges.items, 0..) |*edge, i| edge.color = colors[@intCast(1 + symmetricalTrichotomy(i, edges_len))];
                 } else if (edges_len >= 1) {
                     var parts: [7]EdgeSegment = @splat(.{});
-                    contour.edges.items[0].splitInThirds(&parts[0 + 3 * corner], &parts[1 + 3 * corner], &parts[2 + 3 * corner]);
+                    contour.edges.items[0].splitInThirds(parts[corner_idx..][0..3]);
                     if (edges_len >= 2) {
-                        contour.edges.items[1].splitInThirds(&parts[3 - 3 * corner], &parts[4 - 3 * corner], &parts[5 - 3 * corner]);
-                        inline for (.{ 0, 1 }) |i| parts[i].color = colors[0];
-                        inline for (.{ 2, 3 }) |i| parts[i].color = colors[1];
-                        inline for (.{ 4, 5 }) |i| parts[i].color = colors[2];
-                    } else inline for (.{ 0, 1, 2 }) |i| parts[i].color = colors[i];
+                        contour.edges.items[1].splitInThirds(parts[3 - corner_idx ..][0..3]);
+                        for (0..6) |i| parts[i].color = colors[@divFloor(i, 2)];
+                    } else for (0..3) |i| parts[i].color = colors[i];
                     contour.edges.clearRetainingCapacity();
-                    const min_idx = @min(0 + 3 * corner, 3 - 3 * corner);
-                    for (0..min_idx) |i| try contour.edges.append(allocator, parts[i]);
+                    for (0..@min(0 + corner_idx, 3 - corner_idx)) |i|
+                        try contour.edges.append(allocator, parts[i]);
                 }
             },
             else => {
@@ -78,12 +78,4 @@ pub fn simple(allocator: std.mem.Allocator, shape: *Shape, angle_threshold: f64)
             },
         }
     }
-}
-
-pub fn inkTrap(_: std.mem.Allocator, _: *Shape, _: f64) !void {
-    @panic("Not implemented yet");
-}
-
-pub fn distance(_: std.mem.Allocator, _: *Shape, _: f64) !void {
-    @panic("Not implemented yet");
 }

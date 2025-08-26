@@ -11,5 +11,13 @@
                 "cwd": "${workspaceFolder}/example"
             },
         },
+        {
+            "label": "ReleaseFast",
+            "type": "shell",
+            "command": "zig build -Doptimize=ReleaseFast -freference-trace",
+            "options": {
+                "cwd": "${workspaceFolder}/example"
+            },
+        },
     ]
 }

@@ -3,27 +3,25 @@ const std = @import("std");
 const Generator = @import("msdf-zig");
 const zstbi = @import("zstbi");
 
-const font_data = @embedFile("OpenSans-Bold.ttf");
-
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    var dbg_alloc: std.heap.DebugAllocator(.{ .stack_trace_frames = 10 }) = .init;
+    defer _ = dbg_alloc.deinit();
+
+    const allocator = dbg_alloc.allocator();
 
     zstbi.init(allocator);
     defer zstbi.deinit();
 
-    // In a real world scenario you'd open the font from disk rather than embedding it
-    // var file = try std.fs.cwd().openFile("OpenSans-Bold.ttf", .{});
-    // defer file.close();
+    var file = try std.fs.cwd().openFile("assets/OpenSans-Bold.ttf", .{});
+    defer file.close();
 
-    // const font_memory = try file.readToEndAlloc(allocator, std.math.maxInt(u32));
-    // defer allocator.free(font_memory);
+    var read_buf: [4096]u8 = undefined;
+    var reader = file.reader(&read_buf);
 
-    // var gen: Generator = try .create(font_memory);
-    // defer gen.destroy();
+    const font_memory = try reader.interface.allocRemaining(allocator, .unlimited);
+    defer allocator.free(font_memory);
 
-    var gen: Generator = try .create(font_data);
+    var gen: Generator = try .create(font_memory);
     defer gen.destroy();
 
     const metrics = try gen.fontMetrics();
@@ -45,8 +43,10 @@ pub fn main() !void {
     const gen_opts: Generator.GenerationOptions = .{ .sdf_type = .mtsdf, .px_size = 64, .px_range = 8 };
 
     inline for (.{ 'A', 'B', 'C' }) |codepoint| {
+        var timer: std.time.Timer = try .start();
         const data = try gen.generateSingle(allocator, codepoint, gen_opts);
         defer data.deinit(allocator);
+        std.log.info("SDF for codepoint {u} generated in: {d}us", .{ codepoint, @divFloor(timer.read(), std.time.ns_per_us) });
 
         std.log.info(
             \\Single Glyph Data for "{u}":
@@ -75,6 +75,7 @@ pub fn main() !void {
 
     const atlas_w = 512;
     const atlas_h = 512;
+    var timer: std.time.Timer = try .start();
     const data = try gen.generateAtlas(
         allocator,
         &.{ 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L' },
@@ -84,6 +85,7 @@ pub fn main() !void {
         gen_opts,
     );
     defer data.deinit(allocator);
+    std.log.info("SDF for atlas generated in: {d}us", .{@divFloor(timer.read(), std.time.ns_per_us)});
     for (data.glyphs) |atlas_glyph| std.log.info(
         \\Atlas Glyph Data for "{u}":
         \\Advance: {d:.2}

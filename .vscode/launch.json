@@ -10,5 +10,14 @@
             "cwd": "${workspaceFolder}/example/zig-out/bin",
             "preLaunchTask": "Debug"
         },
+        {
+            "name": "ReleaseFast",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/example/zig-out/bin/Example",
+            "args": [],
+            "cwd": "${workspaceFolder}/example/zig-out/bin",
+            "preLaunchTask": "ReleaseFast"
+        },
     ]
 }

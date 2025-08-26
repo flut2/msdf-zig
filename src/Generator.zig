@@ -10,12 +10,11 @@ const EdgeColor = edge_color.EdgeColor;
 const EdgeSegment = @import("EdgeSegment.zig");
 const ErrorCorrection = @import("ErrorCorrection.zig");
 const math = @import("math.zig");
-const clampNorm = math.clampNorm;
-const median = math.median;
 const Scanline = @import("Scanline.zig");
 const Shape = @import("Shape.zig");
 const SignedDistance = @import("SignedDistance.zig");
-const Vec2 = @import("Vec2.zig");
+
+const Vec2 = @Vector(2, f64);
 
 const Generator = @This();
 
@@ -101,7 +100,7 @@ const FreetypeContext = struct {
     allocator: std.mem.Allocator,
     scale: f64,
     shape: *Shape,
-    pos: Vec2 = .{ .x = 0.0, .y = 0.0 },
+    pos: Vec2 = @splat(0.0),
     contour: ?*Contour = null,
 };
 
@@ -191,7 +190,7 @@ pub fn generateSingle(
     const h: u16 = @intFromFloat((bounds.top - bounds.bottom + px_range) * f_px_size);
 
     const oob_point: Vec2 = if (opts.orientation == .guess)
-        .{ .x = bounds.left - (bounds.right - bounds.left) - 1, .y = bounds.bottom - (bounds.top - bounds.bottom) - 1 }
+        .{ bounds.left - (bounds.right - bounds.left) - 1, bounds.bottom - (bounds.top - bounds.bottom) - 1 }
     else
         undefined;
 
@@ -279,7 +278,7 @@ pub fn generateAtlas(
         const glyph_h: u16 = @intFromFloat((bounds.top - bounds.bottom + px_range) * f_px_size);
 
         const oob_point: Vec2 = if (gen_opts.orientation == .guess)
-            .{ .x = bounds.left - (bounds.right - bounds.left) - 1, .y = bounds.bottom - (bounds.top - bounds.bottom) - 1 }
+            .{ bounds.left - (bounds.right - bounds.left) - 1, bounds.bottom - (bounds.top - bounds.bottom) - 1 }
         else
             undefined;
 
@@ -369,11 +368,11 @@ fn getSdfPixels(
         .sdf => generateSdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y),
         .psdf => generatePsdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y),
         .msdf => {
-            try coloring.simple(allocator, shape, opts.corner_angle_threshold);
+            try coloring.colorShape(allocator, shape, opts.corner_angle_threshold);
             generateMsdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y);
         },
         .mtsdf => {
-            try coloring.simple(allocator, shape, opts.corner_angle_threshold);
+            try coloring.colorShape(allocator, shape, opts.corner_angle_threshold);
             generateMtsdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y);
         },
     }
@@ -475,7 +474,7 @@ fn msdfSignCorrection(
         for (0..w) |x| {
             const filled = scanline.filled((f64i(x) + 0.5) / scale - tx, fill_rule);
             const idx = row * scaled_w + x * channels;
-            const distance = median(out_pixels[idx], out_pixels[idx + 1], out_pixels[idx + 2]);
+            const distance = math.median(out_pixels[idx], out_pixels[idx + 1], out_pixels[idx + 2]);
             if (distance == 0.5) {
                 ambiguous = true;
             } else if ((distance > 0.5) != filled) {
@@ -501,8 +500,8 @@ fn msdfSignCorrection(
                     if (y > 0) neighbor_match += match - w;
                     if (y < h - 1) neighbor_match += match + w;
                     if (neighbor_match < 0) {
-                        const idx = row * scaled_w + x * channels;
-                        for (0..3) |i| out_pixels[idx + i] = 1.0 - out_pixels[idx + i];
+                        for (out_pixels[row * scaled_w + x * channels..][0..3]) |*px|
+                            px.* = 1.0 - px.*;
                     }
                 }
                 match_idx += 1;
@@ -516,7 +515,7 @@ fn findDistanceAt(shape: Shape, p: Vec2, px_range: f64) f64 {
     var min_dist: SignedDistance = .{};
     for (shape.contours.items) |contour| for (contour.edges.items) |*edge| {
         const dist = edge.signedDistance(p, &dummy);
-        if (dist.lt(min_dist)) min_dist = dist;
+        if (dist.lessThan(min_dist)) min_dist = dist;
     };
     return (min_dist.distance + px_range / 2.0) / px_range;
 }
@@ -527,13 +526,13 @@ fn generateSdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_r
         for (0..w) |x| {
             var dummy: f64 = 0;
             const p: Vec2 = .{
-                .x = (f64i(x) + 0.5) / scale - tx,
-                .y = (f64i(y) + 0.5) / scale - ty,
+                (f64i(x) + 0.5) / scale - tx,
+                (f64i(y) + 0.5) / scale - ty,
             };
             var min_dist: SignedDistance = .{};
             for (shape.contours.items) |contour| for (contour.edges.items) |*edge| {
                 const dist = edge.signedDistance(p, &dummy);
-                if (dist.lt(min_dist)) min_dist = dist;
+                if (dist.lessThan(min_dist)) min_dist = dist;
             };
             out_pixels[row * w + x] = (min_dist.distance + px_range / 2.0) / px_range;
         }
@@ -545,8 +544,8 @@ fn generatePsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_
         const row = h - y - 1;
         for (0..w) |x| {
             const p: Vec2 = .{
-                .x = (f64i(x) + 0.5) / scale - tx,
-                .y = (f64i(y) + 0.5) / scale - ty,
+                (f64i(x) + 0.5) / scale - tx,
+                (f64i(y) + 0.5) / scale - ty,
             };
             var min_dist: SignedDistance = .{};
             var near_edge: ?*EdgeSegment = null;
@@ -554,7 +553,7 @@ fn generatePsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_
             for (shape.contours.items) |contour| for (contour.edges.items) |*edge| {
                 var param: f64 = 0;
                 const dist = edge.signedDistance(p, &param);
-                if (dist.lt(min_dist)) {
+                if (dist.lessThan(min_dist)) {
                     min_dist = dist;
                     near_edge = edge;
                     near_param = param;
@@ -571,8 +570,8 @@ fn generateMsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_
         const row = h - y - 1;
         for (0..w) |x| {
             const p: Vec2 = .{
-                .x = (f64i(x) + 0.5) / scale - tx,
-                .y = (f64i(y) + 0.5) / scale - ty,
+                (f64i(x) + 0.5) / scale - tx,
+                (f64i(y) + 0.5) / scale - ty,
             };
             const PsdfData = struct {
                 min_dist: SignedDistance = .{},
@@ -585,17 +584,17 @@ fn generateMsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_
             for (shape.contours.items) |contour| for (contour.edges.items) |*edge| {
                 var param: f64 = 0;
                 const dist = edge.signedDistance(p, &param);
-                if ((@intFromEnum(edge.color) & @intFromEnum(EdgeColor.red)) != 0 and dist.lt(r.min_dist)) {
+                if ((@intFromEnum(edge.color) & @intFromEnum(EdgeColor.red)) != 0 and dist.lessThan(r.min_dist)) {
                     r.min_dist = dist;
                     r.near_edge = edge;
                     r.near_param = param;
                 }
-                if ((@intFromEnum(edge.color) & @intFromEnum(EdgeColor.green)) != 0 and dist.lt(g.min_dist)) {
+                if ((@intFromEnum(edge.color) & @intFromEnum(EdgeColor.green)) != 0 and dist.lessThan(g.min_dist)) {
                     g.min_dist = dist;
                     g.near_edge = edge;
                     g.near_param = param;
                 }
-                if ((@intFromEnum(edge.color) & @intFromEnum(EdgeColor.blue)) != 0 and dist.lt(b.min_dist)) {
+                if ((@intFromEnum(edge.color) & @intFromEnum(EdgeColor.blue)) != 0 and dist.lessThan(b.min_dist)) {
                     b.min_dist = dist;
                     b.near_edge = edge;
                     b.near_param = param;
@@ -620,8 +619,8 @@ fn generateMtsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px
         const row = h - y - 1;
         for (0..w) |x| {
             const p: Vec2 = .{
-                .x = (f64i(x) + 0.5) / scale - tx,
-                .y = (f64i(y) + 0.5) / scale - ty,
+                (f64i(x) + 0.5) / scale - tx,
+                (f64i(y) + 0.5) / scale - ty,
             };
             const PsdfData = struct {
                 min_dist: SignedDistance = .{},
@@ -635,18 +634,18 @@ fn generateMtsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px
             for (shape.contours.items) |contour| for (contour.edges.items) |*edge| {
                 var param: f64 = 0;
                 const dist = edge.signedDistance(p, &param);
-                if (dist.lt(min_dist)) min_dist = dist;
-                if ((@intFromEnum(edge.color) & @intFromEnum(EdgeColor.red)) != 0 and dist.lt(r.min_dist)) {
+                if (dist.lessThan(min_dist)) min_dist = dist;
+                if ((@intFromEnum(edge.color) & @intFromEnum(EdgeColor.red)) != 0 and dist.lessThan(r.min_dist)) {
                     r.min_dist = dist;
                     r.near_edge = edge;
                     r.near_param = param;
                 }
-                if ((@intFromEnum(edge.color) & @intFromEnum(EdgeColor.green)) != 0 and dist.lt(g.min_dist)) {
+                if ((@intFromEnum(edge.color) & @intFromEnum(EdgeColor.green)) != 0 and dist.lessThan(g.min_dist)) {
                     g.min_dist = dist;
                     g.near_edge = edge;
                     g.near_param = param;
                 }
-                if ((@intFromEnum(edge.color) & @intFromEnum(EdgeColor.blue)) != 0 and dist.lt(b.min_dist)) {
+                if ((@intFromEnum(edge.color) & @intFromEnum(EdgeColor.blue)) != 0 and dist.lessThan(b.min_dist)) {
                     b.min_dist = dist;
                     b.near_edge = edge;
                     b.near_param = param;
@@ -668,19 +667,19 @@ fn generateMtsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px
 }
 
 fn ftMoveTo(to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.c) i32 {
-    var context: *FreetypeContext = @alignCast(@ptrCast(ud));
+    var context: *FreetypeContext = @ptrCast(@alignCast(ud));
     if (!(context.contour != null and context.contour.?.edges.items.len == 0)) {
         context.contour = context.shape.contours.addOne(context.allocator) catch return ft.c.FT_Err_Out_Of_Memory;
         context.contour.?.* = .{};
     }
-    context.pos = .{ .x = f64i(to.*.x) * context.scale, .y = f64i(to.*.y) * context.scale };
+    context.pos = .{ f64i(to.*.x) * context.scale, f64i(to.*.y) * context.scale };
     return 0;
 }
 
 fn ftLineTo(to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.c) i32 {
-    var context: *FreetypeContext = @alignCast(@ptrCast(ud));
-    const endpoint: Vec2 = .{ .x = f64i(to.*.x) * context.scale, .y = f64i(to.*.y) * context.scale };
-    if (!endpoint.eql(context.pos)) {
+    var context: *FreetypeContext = @ptrCast(@alignCast(ud));
+    const endpoint: Vec2 = .{ f64i(to.*.x) * context.scale, f64i(to.*.y) * context.scale };
+    if (!std.meta.eql(endpoint, context.pos)) {
         context.contour.?.edges.append(
             context.allocator,
             .create(context.pos, endpoint, null, null, .white),
@@ -691,12 +690,12 @@ fn ftLineTo(to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.c) i32 {
 }
 
 fn ftConicTo(control: [*c]const ft.Vector, to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.c) i32 {
-    var context: *FreetypeContext = @alignCast(@ptrCast(ud));
-    const endpoint: Vec2 = .{ .x = f64i(to.*.x) * context.scale, .y = f64i(to.*.y) * context.scale };
-    if (!endpoint.eql(context.pos)) {
+    var context: *FreetypeContext = @ptrCast(@alignCast(ud));
+    const endpoint: Vec2 = .{ f64i(to.*.x) * context.scale, f64i(to.*.y) * context.scale };
+    if (!std.meta.eql(endpoint, context.pos)) {
         context.contour.?.edges.append(context.allocator, .create(
             context.pos,
-            .{ .x = f64i(control.*.x) * context.scale, .y = f64i(control.*.y) * context.scale },
+            .{ f64i(control.*.x) * context.scale, f64i(control.*.y) * context.scale },
             endpoint,
             null,
             .white,
@@ -707,11 +706,11 @@ fn ftConicTo(control: [*c]const ft.Vector, to: [*c]const ft.Vector, ud: ?*anyopa
 }
 
 fn ftCubicTo(control1: [*c]const ft.Vector, control2: [*c]const ft.Vector, to: [*c]const ft.Vector, ud: ?*anyopaque) callconv(.c) i32 {
-    var context: *FreetypeContext = @alignCast(@ptrCast(ud));
-    const endpoint: Vec2 = .{ .x = f64i(to.*.x) * context.scale, .y = f64i(to.*.y) * context.scale };
-    const scaled_c1: Vec2 = .{ .x = f64i(control1.*.x) * context.scale, .y = f64i(control1.*.y) * context.scale };
-    const scaled_c2: Vec2 = .{ .x = f64i(control2.*.x) * context.scale, .y = f64i(control2.*.y) * context.scale };
-    if (!endpoint.eql(context.pos) or scaled_c1.sub(endpoint).cross(scaled_c2.sub(endpoint)) != 0.0) {
+    var context: *FreetypeContext = @ptrCast(@alignCast(ud));
+    const endpoint: Vec2 = .{ f64i(to.*.x) * context.scale, f64i(to.*.y) * context.scale };
+    const scaled_c1: Vec2 = .{ f64i(control1.*.x) * context.scale, f64i(control1.*.y) * context.scale };
+    const scaled_c2: Vec2 = .{ f64i(control2.*.x) * context.scale, f64i(control2.*.y) * context.scale };
+    if (!std.meta.eql(endpoint, context.pos) or math.cross(scaled_c1 - endpoint, scaled_c2 - endpoint) != 0.0) {
         context.contour.?.edges.append(
             context.allocator,
             .create(context.pos, scaled_c1, scaled_c2, endpoint, .white),
@@ -726,6 +725,6 @@ pub fn f64i(int: anytype) f32 {
 }
 
 fn u8f(float: anytype) u8 {
-    const int_form: u8 = @intFromFloat(255.5 - 255.0 * clampNorm(float));
+    const int_form: u8 = @intFromFloat(255.5 - 255.0 * std.math.clamp(float, 0.0, 1.0));
     return ~int_form;
 }

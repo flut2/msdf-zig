@@ -24,9 +24,8 @@ inline for (.{ 'A', 'B', 'C' }) |codepoint| {
 
 ## Disclaimer
 Some features haven't been implemented yet. These include:
-- Rest of the error correction distance modes (other than ``.none``)
+- Rest of the error correction distance modes (other than `.none`)
 - Support for overlapping contours
-- Different coloring strategies
 - SVG support
 - Option for kerning pairs when generating an atlas
 - Variable fonts

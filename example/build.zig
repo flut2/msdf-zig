@@ -27,6 +27,12 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("zstbi", zstbi_dep.module("root"));
     exe.linkLibrary(zstbi_dep.artifact("zstbi"));
 
+    exe.step.dependOn(&b.addInstallDirectory(.{
+        .source_dir = b.path("assets/"),
+        .install_dir = .{ .bin = {} },
+        .install_subdir = "assets",
+    }).step);
+
     const run_step = b.addRunArtifact(exe);
     const run = b.step("run", "Run the example");
     run.dependOn(&run_step.step);
