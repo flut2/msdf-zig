@@ -29,6 +29,22 @@ pub const EdgeColor = enum(u8) {
         return ret;
     }
 
+    fn cmyWithExcls(excl_1: EdgeColor, excl_2: EdgeColor) EdgeColor {
+        const T = EdgeColor;
+        const cmy_tuple = .{ T.cyan, T.magenta, T.yellow };
+
+        var validation: [2]bool = @splat(false);
+        for (cmy_tuple) |c| {
+            if (c == excl_1) validation[0] = true;
+            if (c == excl_2) validation[1] = true;
+        }
+        if (!std.meta.eql(validation, @splat(true)))
+            @compileError("You must provide CMY exclusion values");
+
+        for (cmy_tuple) |c| if (c != excl_1 and c != excl_2)
+            return c;
+    }
+
     pub fn random(self: *EdgeColor) void {
         const T = EdgeColor;
         switch (self.*) {
@@ -45,10 +61,17 @@ pub const EdgeColor = enum(u8) {
     }
 
     pub fn change(self: *EdgeColor, banned: EdgeColor) void {
-        const combined = @intFromEnum(self.*) & @intFromEnum(banned);
-        switch (@as(EdgeColor, @enumFromInt(combined))) {
-            .red, .green, .blue => self.* = @enumFromInt(EdgeColor.len - 1 - combined),
-            else => self.random(),
+        switch (self.*) {
+            inline .cyan, .magenta, .yellow => |c| switch (banned) {
+                inline .cyan, .magenta, .yellow => |bc| if (comptime c != bc) {
+                    self.* = comptime cmyWithExcls(c, bc);
+                    return;
+                },
+                else => {},
+            },
+            else => {},
         }
+
+        self.random();
     }
 };
