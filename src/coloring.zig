@@ -6,6 +6,7 @@ const math = @import("math.zig");
 const Shape = @import("Shape.zig");
 
 const Vec2 = @Vector(2, f64);
+
 fn symmetricalTrichotomy(pos: usize, n: usize) i32 {
     const fpos: f64 = @floatFromInt(pos);
     const fn1: f64 = @floatFromInt(n - 1);
@@ -56,7 +57,7 @@ pub fn colorShape(allocator: std.mem.Allocator, shape: *Shape, angle_threshold: 
                         for (0..6) |i| parts[i].color = colors[@divFloor(i, 2)];
                     } else for (0..3) |i| parts[i].color = colors[i];
                     contour.edges.clearRetainingCapacity();
-                    for (0..@min(0 + corner_idx, 3 - corner_idx)) |i|
+                    for (0..@min(corner_idx, 3 - corner_idx)) |i|
                         try contour.edges.append(allocator, parts[i]);
                 }
             },
@@ -71,7 +72,7 @@ pub fn colorShape(allocator: std.mem.Allocator, shape: *Shape, angle_threshold: 
                     const idx = (start + i) % edges_len;
                     if (spline + 1 < corners_len and corners.items[spline + 1] == idx) {
                         spline += 1;
-                        color.change(@enumFromInt(@intFromBool(spline == corners_len - 1) * @intFromEnum(initial_color)));
+                        color.change(if (spline == corners_len - 1) initial_color else .black);
                     }
                     contour.edges.items[idx].color = color;
                 }

@@ -500,7 +500,7 @@ fn msdfSignCorrection(
                     if (y > 0) neighbor_match += match - w;
                     if (y < h - 1) neighbor_match += match + w;
                     if (neighbor_match < 0) {
-                        for (out_pixels[row * scaled_w + x * channels..][0..3]) |*px|
+                        for (out_pixels[row * scaled_w + x * channels ..][0..3]) |*px|
                             px.* = 1.0 - px.*;
                     }
                 }

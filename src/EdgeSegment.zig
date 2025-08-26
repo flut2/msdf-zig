@@ -111,8 +111,8 @@ pub fn direction(self: EdgeSegment, comptime index: u1) Vec2 {
         .linear => |p| return p[1] - p[0],
         .quadratic_bezier => |p| {
             const tangent = switch (index) {
-                0 => p[2] - p[1],
-                1 => p[1] - p[0],
+                0 => p[1] - p[0],
+                1 => p[2] - p[1],
             };
             if (std.meta.eql(tangent, v2(0.0))) return p[2] - p[0];
             return tangent;
@@ -313,21 +313,20 @@ pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64)
                     total += 1;
                 } else next_dy = 1;
             }
-            {
-                const ab = p[1] - p[0];
-                const br = p[2] - p[1] - ab;
-                var roots: [2]f64 = undefined;
-                const num_solutions = equations.solveQuadratic(&roots, br[1], 2 * ab[1], p[0][1] - y);
-                if (num_solutions >= 2 and roots[0] > roots[1]) std.mem.swap(f64, &roots[0], &roots[1]);
-                for (roots[0..num_solutions]) |root| if (root >= 0 and root <= 1) {
-                    x[total] = p[0][0] + 2 * root * ab[0] + root * root * br[0];
-                    if (@as(f64, @floatFromInt(next_dy)) * (ab[1] + root * br[1]) >= 0) {
-                        dy[total] = next_dy;
-                        total += 1;
-                        next_dy = -next_dy;
-                    }
-                };
-            }
+
+            const ab = p[1] - p[0];
+            const br = p[2] - p[1] - ab;
+            var roots: [2]f64 = undefined;
+            const num_solutions = equations.solveQuadratic(&roots, br[1], 2 * ab[1], p[0][1] - y);
+            if (num_solutions >= 2 and roots[0] > roots[1]) std.mem.swap(f64, &roots[0], &roots[1]);
+            for (roots[0..num_solutions]) |root| if (root >= 0 and root <= 1) {
+                x[total] = p[0][0] + 2 * root * ab[0] + root * root * br[0];
+                if (@as(f64, @floatFromInt(next_dy)) * (ab[1] + root * br[1]) >= 0) {
+                    dy[total] = next_dy;
+                    total += 1;
+                    next_dy = -next_dy;
+                }
+            };
 
             if (p[2][1] == y) {
                 if (next_dy > 0 and total > 0) {
@@ -366,30 +365,29 @@ pub fn scanlineIntersections(self: EdgeSegment, x: *[3]f64, dy: *[3]i32, y: f64)
                     total += 1;
                 } else next_dy = 1;
             }
-            {
-                const ab = p[1] - p[0];
-                const br = p[2] - p[1] - ab;
-                const as = (p[3] - p[2]) - (p[2] - p[1]) - br;
-                var roots: [3]f64 = undefined;
-                const num_solutions = equations.solveCubic(&roots, as[1], 3 * br[1], 3 * ab[1], p[0][1] - y);
-                if (num_solutions >= 2) {
+
+            const ab = p[1] - p[0];
+            const br = p[2] - p[1] - ab;
+            const as = (p[3] - p[2]) - (p[2] - p[1]) - br;
+            var roots: [3]f64 = undefined;
+            const num_solutions = equations.solveCubic(&roots, as[1], 3 * br[1], 3 * ab[1], p[0][1] - y);
+            if (num_solutions >= 2) {
+                if (roots[0] > roots[1]) std.mem.swap(f64, &roots[0], &roots[1]);
+
+                if (num_solutions >= 3 and roots[1] > roots[2]) {
+                    std.mem.swap(f64, &roots[1], &roots[2]);
                     if (roots[0] > roots[1]) std.mem.swap(f64, &roots[0], &roots[1]);
-
-                    if (num_solutions >= 3 and roots[1] > roots[2]) {
-                        std.mem.swap(f64, &roots[1], &roots[2]);
-                        if (roots[0] > roots[1]) std.mem.swap(f64, &roots[0], &roots[1]);
-                    }
                 }
-
-                for (roots[0..num_solutions]) |root| if (root >= 0 and root <= 1) {
-                    x[total] = p[0][0] + 3 * root * ab[0] + 3 * root * root * br[0] + root * root * root * as[0];
-                    if (@as(f64, @floatFromInt(next_dy)) * (ab[1] + 2 * root * br[1] + root * root * as[1]) >= 0) {
-                        dy[total] = next_dy;
-                        total += 1;
-                        next_dy = -next_dy;
-                    }
-                };
             }
+
+            for (roots[0..num_solutions]) |root| if (root >= 0 and root <= 1) {
+                x[total] = p[0][0] + 3 * root * ab[0] + 3 * root * root * br[0] + root * root * root * as[0];
+                if (@as(f64, @floatFromInt(next_dy)) * (ab[1] + 2 * root * br[1] + root * root * as[1]) >= 0) {
+                    dy[total] = next_dy;
+                    total += 1;
+                    next_dy = -next_dy;
+                }
+            };
 
             if (p[3][1] == y) {
                 if (next_dy > 0 and total > 0) {
