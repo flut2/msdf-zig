@@ -19,16 +19,6 @@ pub const EdgeColor = enum(u8) {
         return two_channel[rng.next() % two_channel.len];
     }
 
-    fn channelValuesWithExcl(excl: EdgeColor, base_vals: anytype) [2]EdgeColor {
-        var ret: [2]EdgeColor = undefined;
-        var i: usize = 0;
-        for (base_vals) |c| if (c != excl) {
-            ret[i] = c;
-            i += 1;
-        };
-        return ret;
-    }
-
     fn cmyWithExcls(excl_1: EdgeColor, excl_2: EdgeColor) EdgeColor {
         const T = EdgeColor;
         const cmy_tuple = .{ T.cyan, T.magenta, T.yellow };
@@ -45,19 +35,18 @@ pub const EdgeColor = enum(u8) {
             return c;
     }
 
-    pub fn random(self: *EdgeColor) void {
-        const T = EdgeColor;
-        switch (self.*) {
-            .black, .white => return,
-            inline else => |c| {
-                const vals_with_excl = comptime channelValuesWithExcl(c, switch (c) {
-                    .red, .green, .blue => .{ T.red, T.green, T.blue },
-                    .cyan, .magenta, .yellow => .{ T.cyan, T.magenta, T.yellow },
-                    else => unreachable,
-                });
-                self.* = vals_with_excl[rng.next() % vals_with_excl.len];
-            },
-        }
+    // Manually specifying each with the current values
+    // seems to yield a better coloring than the old ordered one
+    fn colorSwitchTargets(self: EdgeColor) [2]EdgeColor {
+        return switch (self) {
+            .black, .white => @compileError("Switching black/white colors is not supported"),
+            .red => .{ .green, .blue },
+            .green => .{ .blue, .red },
+            .blue => .{ .red, .green },
+            .cyan => .{ .magenta, .yellow },
+            .magenta => .{ .yellow, .cyan },
+            .yellow => .{ .cyan, .magenta },
+        };
     }
 
     pub fn change(self: *EdgeColor, banned: EdgeColor) void {
@@ -73,5 +62,15 @@ pub const EdgeColor = enum(u8) {
         }
 
         self.random();
+    }
+
+    pub fn random(self: *EdgeColor) void {
+        switch (self.*) {
+            .black, .white => return,
+            inline else => |c| {
+                const switch_targets = comptime colorSwitchTargets(c);
+                self.* = switch_targets[rng.next() % switch_targets.len];
+            },
+        }
     }
 };
