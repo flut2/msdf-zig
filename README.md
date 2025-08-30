@@ -27,5 +27,4 @@ Some features haven't been implemented yet. These include:
 - Rest of the error correction distance modes (other than `.none`)
 - Support for overlapping contours
 - SVG support
-- Option for kerning pairs when generating an atlas
 - Variable fonts

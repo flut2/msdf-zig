@@ -12,8 +12,8 @@
     .dependencies = .{
         .mach_freetype = .{ .path = "libs/mach-freetype" },
         .turbopack = .{
-            .url = "git+https://github.com/flut2/turbopack.git#8fc71a37a798bcf31ab0bd65d7e3089d1569bc35",
-            .hash = "turbopack-1.0.0-rSxRjjsfAACcX7QYHoziFhTQPaHid-inIg_X2NEo4QIQ",
+            .url = "git+https://github.com/flut2/turbopack.git#1ed6f6e423a82bafbee2a540328f767171ad8cef",
+            .hash = "turbopack-1.0.0-rSxRjiIfAABFC5AKKtsNiX_xd3BR0WNcuOZAMy5389Rf",
         },
     },
 }

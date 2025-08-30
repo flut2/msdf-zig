@@ -34,6 +34,13 @@ pub const GlyphData = struct {
     height: u16,
 };
 
+pub const KerningPair = struct {
+    codepoint_1: u21,
+    codepoint_2: u21,
+    x: f64,
+    y: f64,
+};
+
 pub const AtlasGlyphData = struct {
     glyph_data: GlyphData,
     codepoint: u21,
@@ -54,10 +61,12 @@ pub const SingleGlyphData = struct {
 
 pub const AtlasData = struct {
     glyphs: []const AtlasGlyphData,
+    kernings: []const KerningPair,
     pixels: []const u8,
 
     pub fn deinit(self: AtlasData, allocator: std.mem.Allocator) void {
         allocator.free(self.glyphs);
+        allocator.free(self.kernings);
         allocator.free(self.pixels);
     }
 };
@@ -215,22 +224,48 @@ pub fn generateAtlas(
     w: u16,
     h: u16,
     padding: u8,
+    use_kerning: bool,
     gen_opts: GenerationOptions,
 ) !AtlasData {
     edge_color.rng.seed(gen_opts.coloring_rng_seed);
 
     const channels = gen_opts.sdf_type.numChannels();
     const glyphs = try allocator.alloc(AtlasGlyphData, codepoints.len);
+    errdefer allocator.free(glyphs);
     const pixels = try allocator.alloc(u8, @as(u32, w) * @as(u32, h) * channels);
+    errdefer allocator.free(pixels);
     @memset(pixels, 0);
 
     var pack_ctx: pack.Context = try .create(allocator, w, h, .{});
     defer pack_ctx.deinit();
 
+    const char_indices = try allocator.alloc(u32, codepoints.len);
+    defer allocator.free(char_indices);
+    for (codepoints, char_indices) |c, *i|
+        i.* = self.face.getCharIndex(c) orelse return error.InvalidCodepoint;
+
+    var kernings: std.ArrayList(KerningPair) = .empty;
+    errdefer kernings.deinit(allocator);
+
+    const has_kerning = use_kerning and self.face.hasKerning();
+    if (has_kerning) {
+        for (char_indices, 0..) |i, idx1| for (char_indices, 0..) |j, idx2|
+            if (i != j) {
+                const kern = try self.face.getKerning(i, j, .default);
+                if (kern.x != 0 or kern.y != 0)
+                    try kernings.append(allocator, .{
+                        .codepoint_1 = codepoints[idx1],
+                        .codepoint_2 = codepoints[idx2],
+                        .x = f64i(kern.x),
+                        .y = f64i(kern.y),
+                    });
+            };
+    }
+
     for (codepoints, 0..) |codepoint, i| {
         const scale = 1.0 / f64i(self.face.unitsPerEM());
-        const glyph_index = self.face.getCharIndex(codepoint) orelse return error.InvalidCodepoint;
-        try self.face.loadGlyph(glyph_index, .{ .no_scale = true, .no_bitmap = true });
+        const idx = char_indices[i];
+        try self.face.loadGlyph(idx, .{ .no_scale = true, .no_bitmap = true });
 
         var shape: Shape = .{};
         defer {
@@ -337,6 +372,7 @@ pub fn generateAtlas(
     return .{
         .glyphs = glyphs,
         .pixels = pixels,
+        .kernings = if (use_kerning) try kernings.toOwnedSlice(allocator) else &.{},
     };
 }
 

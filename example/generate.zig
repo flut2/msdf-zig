@@ -3,6 +3,12 @@ const std = @import("std");
 const Generator = @import("msdf-zig");
 const zstbi = @import("zstbi");
 
+fn printableAscii() []const u21 {
+    var ret: []const u21 = &.{};
+    for (32..127) |i| ret = ret ++ [_]u21{i};
+    return ret;
+}
+
 pub fn main() !void {
     var dbg_alloc: std.heap.DebugAllocator(.{ .stack_trace_frames = 10 }) = .init;
     defer _ = dbg_alloc.deinit();
@@ -48,23 +54,6 @@ pub fn main() !void {
         defer data.deinit(allocator);
         std.log.info("SDF for codepoint {u} generated in: {d}us", .{ codepoint, @divFloor(timer.read(), std.time.ns_per_us) });
 
-        std.log.info(
-            \\Single Glyph Data for "{u}":
-            \\Advance: {d:.2}
-            \\X Bearing: {d:.2}
-            \\Y Bearing: {d:.2}
-            \\Width: {d:.2}
-            \\Height: {d:.2}
-            \\
-        , .{
-            codepoint,
-            data.glyph_data.advance,
-            data.glyph_data.bearing_x,
-            data.glyph_data.bearing_y,
-            data.glyph_data.width,
-            data.glyph_data.height,
-        });
-
         var image: zstbi.Image = try .createEmpty(data.glyph_data.width, data.glyph_data.height, gen_opts.sdf_type.numChannels(), .{});
         defer image.deinit();
         @memcpy(image.data, data.pixels);
@@ -73,43 +62,20 @@ pub fn main() !void {
         try image.writeToFile(path, .png);
     }
 
-    const atlas_w = 512;
+    const atlas_w = 1024;
     const atlas_h = 512;
     var timer: std.time.Timer = try .start();
     const data = try gen.generateAtlas(
         allocator,
-        &.{ 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L' },
+        comptime printableAscii(),
         atlas_w,
         atlas_h,
         2,
+        true,
         gen_opts,
     );
     defer data.deinit(allocator);
     std.log.info("SDF for atlas generated in: {d}us", .{@divFloor(timer.read(), std.time.ns_per_us)});
-    for (data.glyphs) |atlas_glyph| std.log.info(
-        \\Atlas Glyph Data for "{u}":
-        \\Advance: {d:.2}
-        \\X Bearing: {d:.2}
-        \\Y Bearing: {d:.2}
-        \\Width: {d:.2}
-        \\Height: {d:.2}
-        \\Texture U: {d:.2}
-        \\Texture V: {d:.2}
-        \\Texture W: {d:.2}
-        \\Texture H: {d:.2}
-        \\
-    , .{
-        atlas_glyph.codepoint,
-        atlas_glyph.glyph_data.advance,
-        atlas_glyph.glyph_data.bearing_x,
-        atlas_glyph.glyph_data.bearing_y,
-        atlas_glyph.glyph_data.width,
-        atlas_glyph.glyph_data.height,
-        atlas_glyph.tex_u,
-        atlas_glyph.tex_v,
-        atlas_glyph.tex_w,
-        atlas_glyph.tex_h,
-    });
 
     var image: zstbi.Image = try .createEmpty(atlas_w, atlas_h, gen_opts.sdf_type.numChannels(), .{});
     defer image.deinit();

@@ -3,7 +3,7 @@ const std = @import("std");
 pub fn solveQuadratic(roots: *[2]f64, a: f64, b: f64, c: f64) u8 {
     if (a == 0 or @abs(b) > 1e12 * @abs(a)) {
         if (b == 0) return 0;
-        roots.*[0] = -c / b;
+        roots[0] = -c / b;
         return 1;
     }
     const dscr = b * b - 4.0 * a * c;
@@ -41,7 +41,7 @@ fn solveCubicNormed(roots: *[3]f64, a: f64, b: f64, c: f64) u8 {
         const v = if (u == 0) 0 else q / u;
         roots[0] = (u + v) - mod_a;
         if (u == v or @abs(u - v) < 1e-12 * @abs(u + v)) {
-            roots.*[1] = -0.5 * (u + v) - mod_a;
+            roots[1] = -0.5 * (u + v) - mod_a;
             return 2;
         }
         return 1;
