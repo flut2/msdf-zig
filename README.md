@@ -22,9 +22,10 @@ inline for (.{ 'A', 'B', 'C' }) |codepoint| {
 }
 ```
 
+A more in-depth example can be found in `example/generate.zig`.
+
 ## Disclaimer
 Some features haven't been implemented yet. These include:
 - Rest of the error correction distance modes (other than `.none`)
 - Support for overlapping contours
 - SVG support
-- Variable fonts

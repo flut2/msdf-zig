@@ -10,6 +10,7 @@ pub const c = @cImport({
     @cInclude("freetype/ftstroke.h");
     @cInclude("freetype/fttrigon.h");
     @cInclude("freetype/ftsynth.h");
+    @cInclude("freetype/ftmm.h");
 });
 
 pub const Affine23 = c.FT_Affine23;
@@ -44,6 +45,7 @@ pub const SizeMetrics = c.FT_Size_Metrics;
 pub const SizeRequest = c.FT_Size_RequestRec;
 pub const Span = c.FT_Span;
 pub const Vector = c.FT_Vector;
+pub const VarFontInfo = c.FT_MM_Var;
 
 pub const angle_pi = c.FT_ANGLE_PI;
 pub const angle_2pi = c.FT_ANGLE_2PI;
@@ -517,6 +519,20 @@ pub const Face = struct {
 
     pub fn getFSTypeFlags(self: Face) FSType {
         return @bitCast(c.FT_Get_FSType_Flags(self.handle));
+    }
+
+    pub fn createVarFontInfo(self: Face) Error!?*VarFontInfo {
+        var vf: ?*VarFontInfo = undefined;
+        try intToError(c.FT_Get_MM_Var(self.handle, @ptrCast(&vf)));
+        return vf;
+    }
+
+    pub fn getVarDesignCoords(self: Face, out_coords: []c.FT_Fixed) Error!void {
+        return intToError(c.FT_Get_Var_Design_Coordinates(self.handle, @intCast(out_coords.len), out_coords.ptr));
+    }
+
+    pub fn setVarDesignCoords(self: Face, coords: []c.FT_Fixed) Error!void {
+        return intToError(c.FT_Set_Var_Design_Coordinates(self.handle, @intCast(coords.len), coords.ptr));
     }
 
     pub fn getCharVariantIndex(self: Face, char: u32, variant_selector: u32) ?u32 {
@@ -1045,6 +1061,10 @@ pub const Library = struct {
 
     pub fn setLcdFilter(self: Library, lcd_filter: LcdFilter) Error!void {
         return intToError(c.FT_Library_SetLcdFilter(self.handle, @intFromEnum(lcd_filter)));
+    }
+
+    pub fn destroyVarFontInfo(lib: Library, vf: ?*VarFontInfo) Error!void {
+        return intToError(c.FT_Done_MM_Var(lib.handle, @ptrCast(vf)));
     }
 };
 

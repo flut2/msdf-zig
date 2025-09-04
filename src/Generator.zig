@@ -92,6 +92,11 @@ pub const OrientationType = enum {
     reverse,
 };
 
+pub const VarFontArgument = struct {
+    name: []const u8,
+    value: f64,
+};
+
 pub const GenerationOptions = struct {
     sdf_type: SdfType,
     px_size: u16,
@@ -103,6 +108,7 @@ pub const GenerationOptions = struct {
     /// Requires geometry preprocessing to be disabled
     scanline_fill_rule: ?Scanline.FillRule = .non_zero,
     error_correction_opts: ?ErrorCorrection.Options = .{},
+    var_font_args: []const VarFontArgument = &.{},
 };
 
 const FreetypeContext = struct {
@@ -140,14 +146,37 @@ pub fn fontMetrics(self: *Generator) !FontMetrics {
     };
 }
 
+fn handleVarFont(self: *Generator, allocator: std.mem.Allocator, var_args: []const VarFontArgument, face_flags: ft.FaceFlags) !void {
+    if (var_args.len == 0) return;
+
+    if (face_flags.multiple_masters) {
+        const vf = try self.face.createVarFontInfo();
+        if (vf) |var_font| if (var_font.num_axis > 0) {
+            var coords = try allocator.alloc(ft.c.FT_Fixed, var_font.num_axis);
+            defer allocator.free(coords);
+            try self.face.getVarDesignCoords(coords);
+
+            for (var_args) |args|
+                for (var_font.axis[0..var_font.num_axis], 0..) |axis, i|
+                    if (std.mem.eql(u8, std.mem.span(axis.name), args.name)) {
+                        coords[i] = @intFromFloat(std.math.maxInt(u16) * args.value);
+                    };
+            try self.face.setVarDesignCoords(coords);
+        };
+        try self.library.destroyVarFontInfo(vf);
+    } else std.log.warn("Var font args supplied, but the face only has a single master", .{});
+}
+
 /// The result is under the caller's ownership (call `deinit()` or deallocate fields manually)
 pub fn generateSingle(
     self: *Generator,
     allocator: std.mem.Allocator,
     codepoint: u21,
-    opts: GenerationOptions,
+    gen_opts: GenerationOptions,
 ) !SingleGlyphData {
-    edge_color.rng.seed(opts.coloring_rng_seed);
+    edge_color.rng.seed(gen_opts.coloring_rng_seed);
+
+    try self.handleVarFont(allocator, gen_opts.var_font_args, self.face.faceFlags());
 
     const scale = 1.0 / f64i(self.face.unitsPerEM());
     const glyph_index = self.face.getCharIndex(codepoint) orelse return error.InvalidCodepoint;
@@ -183,11 +212,11 @@ pub fn generateSingle(
         _ = shape.contours.orderedRemove(shape.contours.items.len - 1);
 
     if (!shape.validate()) return error.InvalidShape;
-    if (opts.geometry_preprocess) try shape.orientContours(allocator);
+    if (gen_opts.geometry_preprocess) try shape.orientContours(allocator);
     try shape.normalize(allocator);
 
-    const f_px_size = f64i(opts.px_size);
-    const px_range = f64i(opts.px_range) / f_px_size;
+    const f_px_size = f64i(gen_opts.px_size);
+    const px_range = f64i(gen_opts.px_range) / f_px_size;
 
     var bounds = shape.getBounds(0, 0, 0);
     if (bounds.left >= bounds.right or bounds.bottom >= bounds.top)
@@ -198,7 +227,7 @@ pub fn generateSingle(
     const w: u16 = @intFromFloat((bounds.right - bounds.left + px_range) * f_px_size);
     const h: u16 = @intFromFloat((bounds.top - bounds.bottom + px_range) * f_px_size);
 
-    const oob_point: Vec2 = if (opts.orientation == .guess)
+    const oob_point: Vec2 = if (gen_opts.orientation == .guess)
         .{ bounds.left - (bounds.right - bounds.left) - 1, bounds.bottom - (bounds.top - bounds.bottom) - 1 }
     else
         undefined;
@@ -212,7 +241,7 @@ pub fn generateSingle(
             .width = w,
             .height = h,
         },
-        .pixels = try getSdfPixels(allocator, opts, w, h, &shape, translate_x, translate_y, oob_point),
+        .pixels = try getSdfPixels(allocator, gen_opts, w, h, &shape, translate_x, translate_y, oob_point),
     };
 }
 
@@ -228,6 +257,9 @@ pub fn generateAtlas(
     gen_opts: GenerationOptions,
 ) !AtlasData {
     edge_color.rng.seed(gen_opts.coloring_rng_seed);
+
+    const face_flags = self.face.faceFlags();
+    try self.handleVarFont(allocator, gen_opts.var_font_args, face_flags);
 
     const channels = gen_opts.sdf_type.numChannels();
     const glyphs = try allocator.alloc(AtlasGlyphData, codepoints.len);
@@ -247,19 +279,20 @@ pub fn generateAtlas(
     var kernings: std.ArrayList(KerningPair) = .empty;
     errdefer kernings.deinit(allocator);
 
-    const has_kerning = use_kerning and self.face.hasKerning();
-    if (has_kerning) {
-        for (char_indices, 0..) |i, idx1| for (char_indices, 0..) |j, idx2|
-            if (i != j) {
-                const kern = try self.face.getKerning(i, j, .default);
-                if (kern.x != 0 or kern.y != 0)
-                    try kernings.append(allocator, .{
-                        .codepoint_1 = codepoints[idx1],
-                        .codepoint_2 = codepoints[idx2],
-                        .x = f64i(kern.x),
-                        .y = f64i(kern.y),
-                    });
-            };
+    if (use_kerning) {
+        if (face_flags.kerning) {
+            for (char_indices, codepoints) |i, ci| for (char_indices, codepoints) |j, cj|
+                if (i != j) {
+                    const kern = try self.face.getKerning(i, j, .default);
+                    if (kern.x != 0 or kern.y != 0)
+                        try kernings.append(allocator, .{
+                            .codepoint_1 = ci,
+                            .codepoint_2 = cj,
+                            .x = f64i(kern.x),
+                            .y = f64i(kern.y),
+                        });
+                };
+        } else std.log.warn("Kerning requested, but none were found in the font file. Note: FreeType doesn't support GPOS kerning", .{});
     }
 
     for (codepoints, 0..) |codepoint, i| {
@@ -372,7 +405,10 @@ pub fn generateAtlas(
     return .{
         .glyphs = glyphs,
         .pixels = pixels,
-        .kernings = if (use_kerning) try kernings.toOwnedSlice(allocator) else &.{},
+        .kernings = if (use_kerning and kernings.items.len > 0)
+            try kernings.toOwnedSlice(allocator)
+        else
+            &.{},
     };
 }
 
@@ -452,7 +488,8 @@ fn getSdfPixels(
 fn convertPixels(in_pixels: []f64, out_pixels: []u8, w: u16, h: u16, channels: u8) void {
     for (0..h) |y| for (0..w) |x| {
         const idx = y * w * channels + x * channels;
-        for (0..channels) |i| out_pixels[idx + i] = u8f(in_pixels[idx + i]);
+        for (0..channels) |i|
+            out_pixels[idx + i] = @intFromFloat(255.0 * std.math.clamp(in_pixels[idx + i], 0.0, 1.0));
     };
 }
 
@@ -758,9 +795,4 @@ fn ftCubicTo(control1: [*c]const ft.Vector, control2: [*c]const ft.Vector, to: [
 
 pub fn f64i(int: anytype) f32 {
     return @floatFromInt(int);
-}
-
-fn u8f(float: anytype) u8 {
-    const int_form: u8 = @intFromFloat(255.5 - 255.0 * std.math.clamp(float, 0.0, 1.0));
-    return ~int_form;
 }
