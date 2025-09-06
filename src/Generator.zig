@@ -106,7 +106,8 @@ pub const GenerationOptions = struct {
     orientation: OrientationType = .guess,
     geometry_preprocess: bool = false,
     /// Requires geometry preprocessing to be disabled
-    scanline_fill_rule: ?Scanline.FillRule = .non_zero,
+    scanline_fill_rule: ?Scanline.FillRule = null,
+    /// Only MSDFs and MTSDFs can be error corrected
     error_correction_opts: ?ErrorCorrection.Options = .{},
     var_font_args: []const VarFontArgument = &.{},
 };
@@ -425,32 +426,34 @@ fn getSdfPixels(
     const f_px_size = f64i(opts.px_size);
     const px_range = f64i(opts.px_range) / f_px_size;
 
-    var error_correction: ErrorCorrection = if (opts.error_correction_opts) |ec_opts|
-        try .create(allocator, w, h, ec_opts)
-    else
-        .{};
-    defer error_correction.destroy(allocator);
+    var error_correction: ?ErrorCorrection =
+        if (opts.error_correction_opts) |ec_opts| b: {
+            break :b if (opts.sdf_type == .msdf or opts.sdf_type == .mtsdf)
+                try .create(allocator, shape, w, h, ec_opts, opts.scanline_fill_rule != null)
+            else
+                null;
+        } else null;
+    defer if (error_correction) |*ec| ec.destroy(allocator);
 
     const channels = opts.sdf_type.numChannels();
 
     const float_pixels = try allocator.alloc(f64, w * h * channels);
     defer allocator.free(float_pixels);
     const pixels = try allocator.alloc(u8, w * h * channels);
+    const invert_pixels = opts.orientation == .reverse or
+        (opts.orientation == .guess and findDistanceAt(shape.*, oob_point, px_range) > 0);
     switch (opts.sdf_type) {
-        .sdf => generateSdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y),
-        .psdf => generatePsdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y),
+        .sdf => generateSdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y, invert_pixels),
+        .psdf => generatePsdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y, invert_pixels),
         .msdf => {
             try coloring.colorShape(allocator, shape, opts.corner_angle_threshold);
-            generateMsdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y);
+            generateMsdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y, invert_pixels);
         },
         .mtsdf => {
             try coloring.colorShape(allocator, shape, opts.corner_angle_threshold);
-            generateMtsdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y);
+            generateMtsdf(float_pixels, w, h, f_px_size, shape.*, px_range, translate_x, translate_y, invert_pixels);
         },
     }
-
-    if (opts.orientation == .reverse or (opts.orientation == .guess and findDistanceAt(shape.*, oob_point, px_range) > 0))
-        invertPixels(float_pixels);
 
     if (!opts.geometry_preprocess) if (opts.scanline_fill_rule) |fill_rule|
         switch (opts.sdf_type) {
@@ -479,8 +482,7 @@ fn getSdfPixels(
             ),
         };
 
-    if (opts.error_correction_opts != null)
-        error_correction.applyProtections(shape, f_px_size, px_range, translate_x, translate_y, float_pixels, w, h, channels);
+    if (error_correction) |*ec| ec.correct(shape, f_px_size, px_range, translate_x, translate_y, float_pixels, w, h, channels);
     convertPixels(float_pixels, pixels, w, h, channels);
     return pixels;
 }
@@ -491,10 +493,6 @@ fn convertPixels(in_pixels: []f64, out_pixels: []u8, w: u16, h: u16, channels: u
         for (0..channels) |i|
             out_pixels[idx + i] = @intFromFloat(255.0 * std.math.clamp(in_pixels[idx + i], 0.0, 1.0));
     };
-}
-
-fn invertPixels(in_pixels: []f64) void {
-    for (in_pixels) |*pixel| pixel.* = 1.0 - pixel.*;
 }
 
 fn sdfSignCorrection(
@@ -593,7 +591,7 @@ fn findDistanceAt(shape: Shape, p: Vec2, px_range: f64) f64 {
     return (min_dist.distance + px_range / 2.0) / px_range;
 }
 
-fn generateSdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
+fn generateSdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64, invert_pixels: bool) void {
     for (0..h) |y| {
         const row = h - y - 1;
         for (0..w) |x| {
@@ -607,12 +605,14 @@ fn generateSdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_r
                 const dist = edge.signedDistance(p, &dummy);
                 if (dist.lessThan(min_dist)) min_dist = dist;
             };
-            out_pixels[row * w + x] = (min_dist.distance + px_range / 2.0) / px_range;
+            const out = &out_pixels[row * w + x];
+            out.* = (min_dist.distance + px_range / 2.0) / px_range;
+            if (invert_pixels) out.* = 1.0 - out.*;
         }
     }
 }
 
-fn generatePsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
+fn generatePsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64, invert_pixels: bool) void {
     for (0..h) |y| {
         const row = h - y - 1;
         for (0..w) |x| {
@@ -633,12 +633,14 @@ fn generatePsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_
                 }
             };
             if (near_edge) |edge| edge.distanceToPerpendicularDistance(&min_dist, p, near_param);
-            out_pixels[row * w + x] = (min_dist.distance + px_range / 2.0) / px_range;
+            const out = &out_pixels[row * w + x];
+            out.* = (min_dist.distance + px_range / 2.0) / px_range;
+            if (invert_pixels) out.* = 1.0 - out.*;
         }
     }
 }
 
-fn generateMsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
+fn generateMsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64, invert_pixels: bool) void {
     for (0..h) |y| {
         const row = h - y - 1;
         for (0..w) |x| {
@@ -678,16 +680,20 @@ fn generateMsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_
             if (b.near_edge) |edge| edge.distanceToPerpendicularDistance(&b.min_dist, p, b.near_param);
 
             const channels = 3;
-            const scaled_w = w * channels;
-            const scaled_x = x * channels;
-            out_pixels[row * scaled_w + scaled_x] = (r.min_dist.distance + px_range / 2.0) / px_range;
-            out_pixels[row * scaled_w + scaled_x + 1] = (g.min_dist.distance + px_range / 2.0) / px_range;
-            out_pixels[row * scaled_w + scaled_x + 2] = (b.min_dist.distance + px_range / 2.0) / px_range;
+            const sc_w = w * channels;
+            const sc_x = x * channels;
+            const out = out_pixels[row * sc_w + sc_x ..];
+            out[0] = (r.min_dist.distance + px_range / 2.0) / px_range;
+            out[1] = (g.min_dist.distance + px_range / 2.0) / px_range;
+            out[2] = (b.min_dist.distance + px_range / 2.0) / px_range;
+            if (invert_pixels) {
+                for (out[0..channels]) |*v| v.* = 1.0 - v.*;
+            }
         }
     }
 }
 
-fn generateMtsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64) void {
+fn generateMtsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px_range: f64, tx: f64, ty: f64, invert_pixels: bool) void {
     for (0..h) |y| {
         const row = h - y - 1;
         for (0..w) |x| {
@@ -729,12 +735,16 @@ fn generateMtsdf(out_pixels: []f64, w: u16, h: u16, scale: f64, shape: Shape, px
             if (b.near_edge) |edge| edge.distanceToPerpendicularDistance(&b.min_dist, p, b.near_param);
 
             const channels = 4;
-            const scaled_w = w * channels;
-            const scaled_x = x * channels;
-            out_pixels[row * scaled_w + scaled_x] = (r.min_dist.distance + px_range / 2.0) / px_range;
-            out_pixels[row * scaled_w + scaled_x + 1] = (g.min_dist.distance + px_range / 2.0) / px_range;
-            out_pixels[row * scaled_w + scaled_x + 2] = (b.min_dist.distance + px_range / 2.0) / px_range;
-            out_pixels[row * scaled_w + scaled_x + 3] = (min_dist.distance + px_range / 2.0) / px_range;
+            const sc_w = w * channels;
+            const sc_x = x * channels;
+            const out = out_pixels[row * sc_w + sc_x ..];
+            out[0] = (r.min_dist.distance + px_range / 2.0) / px_range;
+            out[1] = (g.min_dist.distance + px_range / 2.0) / px_range;
+            out[2] = (b.min_dist.distance + px_range / 2.0) / px_range;
+            out[3] = (min_dist.distance + px_range / 2.0) / px_range;
+            if (invert_pixels) {
+                for (out[0..channels]) |*v| v.* = 1.0 - v.*;
+            }
         }
     }
 }

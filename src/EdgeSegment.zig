@@ -23,7 +23,7 @@ segment: union(enum) {
     cubic_bezier: [4]Vec2,
 } = .{ .linear = @splat(@splat(0.0)) },
 
-pub fn format(self: EdgeSegment, writer: *std.io.Writer) std.io.Writer.Error!void {
+pub fn format(self: EdgeSegment, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     switch (self.segment) {
         inline else => |vals, tag| try writer.print("type={t}, color={t}, vals={}", .{ tag, self.color, vals }),
     }

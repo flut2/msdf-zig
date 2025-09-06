@@ -20,7 +20,7 @@ pub const Bounds = struct {
 
 contours: std.ArrayList(Contour) = .empty,
 
-pub fn format(self: Shape, writer: *std.io.Writer) std.io.Writer.Error!void {
+pub fn format(self: Shape, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.print("Number of contours: {}\n", .{self.contours.items.len});
     for (self.contours.items, 0..) |contour, i| {
         try writer.print("Contour {}: [\n", .{i});
