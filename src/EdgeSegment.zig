@@ -142,30 +142,6 @@ pub fn directionChange(self: EdgeSegment, comptime index: u1) Vec2 {
     }
 }
 
-pub fn length(self: EdgeSegment) f64 {
-    switch (self.segment) {
-        .linear => |p| math.length(p[1] - p[0]),
-        .quadratic_bezier => |p| {
-            const ab = p[1] - p[0];
-            const br = p[2] - p[1] - ab;
-            const abab = dot(ab, ab);
-            const abbr = dot(ab, br);
-            const brbr = dot(br, br);
-            const ab_len = @sqrt(abab);
-            const br_len = @sqrt(brbr);
-            const crs = cross(ab, br);
-            const h = @sqrt(abab + abbr + abbr + brbr);
-            // zig fmt: off
-            return (
-                br_len * ((abbr + brbr) * h - abbr * ab_len) +
-                crs * crs * @log((br_len * h + abbr + brbr) / (br_len * ab_len + abbr))
-            ) / (brbr * br_len);
-            // zig fmt: on
-        },
-        .cubic_bezier => @panic("Length calculation for cubic beziers is not implemented"),
-    }
-}
-
 pub fn signedDistance(self: EdgeSegment, origin: Vec2, param: *f64) SignedDistance {
     switch (self.segment) {
         .linear => |p| {

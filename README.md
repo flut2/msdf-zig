@@ -15,7 +15,7 @@ inline for (.{ 'A', 'B', 'C' }) |codepoint| {
     
     var image: zstbi.Image = try .createEmpty(data.glyph_data.width, data.glyph_data.height, Generator.SdfType.numChannels(.mtsdf), .{});
     defer image.deinit();
-    @memcpy(image.data, data.pixels);
+    @memcpy(image.data, data.pixels.normal);
 
     const path = std.fmt.comptimePrint("{u}_sdf.png", .{codepoint});
     try image.writeToFile(path, .png);

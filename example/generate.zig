@@ -56,7 +56,7 @@ pub fn main() !void {
 
         var image: zstbi.Image = try .createEmpty(data.glyph_data.width, data.glyph_data.height, gen_opts.sdf_type.numChannels(), .{});
         defer image.deinit();
-        @memcpy(image.data, data.pixels);
+        @memcpy(image.data, data.pixels.normal);
 
         const path = std.fmt.comptimePrint("{u}_sdf.png", .{codepoint});
         try image.writeToFile(path, .png);
@@ -79,7 +79,7 @@ pub fn main() !void {
 
     var image: zstbi.Image = try .createEmpty(atlas_w, atlas_h, gen_opts.sdf_type.numChannels(), .{});
     defer image.deinit();
-    @memcpy(image.data, data.pixels);
+    @memcpy(image.data, data.pixels.normal);
 
     try image.writeToFile("atlas_sdf.png", .png);
 }
