@@ -18,7 +18,7 @@ pub fn main() !void {
     zstbi.init(allocator);
     defer zstbi.deinit();
 
-    var file = try std.fs.cwd().openFile("assets/OpenSans-Bold.ttf", .{});
+    var file = try std.fs.cwd().openFile("assets/DMSerifDisplay-Regular.ttf", .{});
     defer file.close();
 
     var read_buf: [4096]u8 = undefined;

@@ -96,8 +96,8 @@ pub const SdfType = enum {
     /// with a 2-bit alpha channel that is ignored (set to u2 max).
     ///
     /// Can prove useful in place of MSDFs as native `R8G8B8_X` (and equivalents)
-    /// support is scarce and 3-channel images are often padded to have an 
-    /// alignment of 4 bytes per pixel on a lot of hardware, resulting in 
+    /// support is scarce and 3-channel images are often padded to have an
+    /// alignment of 4 bytes per pixel on a lot of hardware, resulting in
     /// the final byte getting wasted.
     ///
     /// For use with the `A2B10G10R10_UNORM_PACK32` format (and equivalents).
@@ -325,6 +325,8 @@ pub fn generateAtlas(
     for (codepoints, char_indices) |c, *i|
         i.* = self.face.getCharIndex(c) orelse return error.InvalidCodepoint;
 
+    const scale = 1.0 / f64i(self.face.unitsPerEM());
+
     var kernings: std.ArrayList(KerningPair) = .empty;
     errdefer kernings.deinit(allocator);
 
@@ -332,20 +334,22 @@ pub fn generateAtlas(
         if (face_flags.kerning) {
             for (char_indices, codepoints) |i, ci| for (char_indices, codepoints) |j, cj|
                 if (i != j) {
-                    const kern = try self.face.getKerning(i, j, .default);
+                    const kern = try self.face.getKerning(i, j, .unscaled);
                     if (kern.x != 0 or kern.y != 0)
                         try kernings.append(allocator, .{
                             .codepoint_1 = ci,
                             .codepoint_2 = cj,
-                            .x = f64i(kern.x),
-                            .y = f64i(kern.y),
+                            .x = scale * f64i(kern.x),
+                            .y = scale * f64i(kern.y),
                         });
                 };
-        } else std.log.warn("Kerning requested, but none were found in the font file. Note: FreeType doesn't support GPOS kerning", .{});
+        } else std.log.warn(
+            \\Kerning requested, but none were found in the font file.
+            \\Note: FreeType doesn't have full support for GPOS kerning, you might want to populate the kern table off of the GPOS one with a font editor if you were expecting kerning to be present.
+        , .{});
     }
 
     for (codepoints, 0..) |codepoint, i| {
-        const scale = 1.0 / f64i(self.face.unitsPerEM());
         const idx = char_indices[i];
         try self.face.loadGlyph(idx, .{ .no_scale = true, .no_bitmap = true });
 
