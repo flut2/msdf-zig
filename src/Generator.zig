@@ -15,6 +15,7 @@ const Shape = @import("Shape.zig");
 const SignedDistance = @import("SignedDistance.zig");
 
 const Vec2 = @Vector(2, f64);
+const f64_nan = std.math.nan(f64);
 
 const Generator = @This();
 
@@ -349,6 +350,25 @@ pub fn generateAtlas(
         , .{});
     }
 
+    var rects: std.ArrayListUnmanaged(pack.IdRect) = try .initCapacity(allocator, codepoints.len);
+    defer rects.deinit(allocator);
+
+    var rect_px_normal: std.AutoHashMapUnmanaged(usize, []const u8) = .empty;
+    if (!is_msdf10) try rect_px_normal.ensureTotalCapacity(allocator, @intCast(codepoints.len));
+    defer {
+        var iter = rect_px_normal.valueIterator();
+        while (iter.next()) |px| allocator.free(px.*);
+        rect_px_normal.deinit(allocator);
+    }
+
+    var rect_px_msdf10: std.AutoHashMapUnmanaged(usize, []const Msdf10Pixel) = .empty;
+    if (!is_msdf10) try rect_px_msdf10.ensureTotalCapacity(allocator, @intCast(codepoints.len));
+    defer {
+        var iter = rect_px_msdf10.valueIterator();
+        while (iter.next()) |px| allocator.free(px.*);
+        rect_px_msdf10.deinit(allocator);
+    }
+
     for (codepoints, 0..) |codepoint, i| {
         const idx = char_indices[i];
         try self.face.loadGlyph(idx, .{ .no_scale = true, .no_bitmap = true });
@@ -403,14 +423,15 @@ pub fn generateAtlas(
         else
             undefined;
 
-        if (glyph_w <= 0 or glyph_h <= 0) {
+        const metrics = self.face.glyph().metrics();
+        if (codepoint == ' ' or glyph_w == 0 or glyph_h == 0) {
             glyphs[i] = .{
                 .glyph_data = .{
                     .advance = scale * f64i(self.face.glyph().advance().x),
-                    .bearing_x = 0,
-                    .bearing_y = 0,
-                    .width = 0,
-                    .height = 0,
+                    .bearing_x = scale * f64i(metrics.horiBearingX),
+                    .bearing_y = scale * f64i(metrics.horiBearingY),
+                    .width = 0.0,
+                    .height = 0.0,
                 },
                 .codepoint = codepoint,
                 .tex_u = 1.0,
@@ -421,51 +442,74 @@ pub fn generateAtlas(
             continue;
         }
 
-        var rect: [1]pack.Rect = .{.{
-            .w = glyph_w + padding * 2,
-            .h = glyph_h + padding * 2,
-        }};
-        try pack.pack(pack.Rect, &pack_ctx, &rect, .{});
+        if (is_msdf10)
+            rect_px_msdf10.putAssumeCapacity(
+                i,
+                try getMsdf10Pixels(allocator, gen_opts, glyph_w, glyph_h, &shape, translate_x, translate_y, oob_point),
+            )
+        else
+            rect_px_normal.putAssumeCapacity(
+                i,
+                try getSdfPixels(allocator, gen_opts, glyph_w, glyph_h, &shape, translate_x, translate_y, oob_point),
+            );
 
-        if (gen_opts.sdf_type == .msdf10) {
-            const sdf_pixels = try getMsdf10Pixels(allocator, gen_opts, glyph_w, glyph_h, &shape, translate_x, translate_y, oob_point);
-            defer allocator.free(sdf_pixels);
+        const padded_w = glyph_w + padding * 2;
+        const padded_h = glyph_h + padding * 2;
+        rects.appendAssumeCapacity(.{
+            .id = @intCast(i),
+            .rect = .{ .w = padded_w, .h = padded_h },
+        });
 
-            const cur_atlas_x: u32 = @intCast(rect[0].x + padding);
-            const cur_atlas_y: u32 = @intCast(rect[0].y + padding);
-            for (0..glyph_h) |j| {
-                const atlas_idx = ((cur_atlas_y + j) * w + cur_atlas_x);
-                const src_idx = (j * glyph_w);
-                @memcpy(msdf10_pixels[atlas_idx .. atlas_idx + glyph_w], sdf_pixels[src_idx .. src_idx + glyph_w]);
-            }
-        } else {
-            const sdf_pixels = try getSdfPixels(allocator, gen_opts, glyph_w, glyph_h, &shape, translate_x, translate_y, oob_point);
-            defer allocator.free(sdf_pixels);
-
-            const cur_atlas_x: u32 = @intCast(rect[0].x + padding);
-            const cur_atlas_y: u32 = @intCast(rect[0].y + padding);
-            for (0..glyph_h) |j| {
-                const atlas_idx = ((cur_atlas_y + j) * w + cur_atlas_x) * channels;
-                const src_idx = (j * glyph_w) * channels;
-                @memcpy(normal_pixels[atlas_idx .. atlas_idx + glyph_w * channels], sdf_pixels[src_idx .. src_idx + glyph_w * channels]);
-            }
-        }
-
-        const metrics = self.face.glyph().metrics();
         glyphs[i] = .{
             .glyph_data = .{
                 .advance = scale * f64i(self.face.glyph().advance().x),
                 .bearing_x = scale * f64i(metrics.horiBearingX),
                 .bearing_y = scale * f64i(metrics.horiBearingY),
-                .width = @intCast(rect[0].w),
-                .height = @intCast(rect[0].h),
+                .width = padded_w,
+                .height = padded_h,
             },
             .codepoint = codepoint,
-            .tex_u = f64i(rect[0].x) / f64i(w),
-            .tex_v = f64i(rect[0].y) / f64i(h),
-            .tex_w = f64i(rect[0].w) / f64i(w),
-            .tex_h = f64i(rect[0].h) / f64i(h),
+            .tex_u = f64_nan,
+            .tex_v = f64_nan,
+            .tex_w = f64_nan,
+            .tex_h = f64_nan,
         };
+    }
+
+    try pack.pack(pack.IdRect, &pack_ctx, rects.items, .{ .sortLessThanFn = sortLessThan });
+
+    const fw = f64i(w);
+    const fh = f64i(h);
+    const mod_channels: usize = if (is_msdf10) 1 else channels;
+
+    for (rects.items) |id_rect| {
+        const index: usize = @intCast(id_rect.id);
+        const rect = id_rect.rect;
+
+        const glyph_w: usize = @intCast(rect.w - padding * 2);
+        const glyph_h: usize = @intCast(rect.h - padding * 2);
+        const cur_atlas_x: usize = @intCast(rect.x + padding);
+        const cur_atlas_y: usize = @intCast(rect.y + padding);
+
+        for (0..glyph_h) |j| {
+            const atlas_idx = ((cur_atlas_y + j) * w + cur_atlas_x) * mod_channels;
+            const src_idx = (j * glyph_w) * mod_channels;
+            if (is_msdf10)
+                @memcpy(
+                    msdf10_pixels[atlas_idx .. atlas_idx + glyph_w * mod_channels],
+                    rect_px_msdf10.get(index).?[src_idx .. src_idx + glyph_w * mod_channels],
+                )
+            else
+                @memcpy(
+                    normal_pixels[atlas_idx .. atlas_idx + glyph_w * mod_channels],
+                    rect_px_normal.get(index).?[src_idx .. src_idx + glyph_w * mod_channels],
+                );
+        }
+
+        glyphs[index].tex_u = f64i(rect.x) / fw;
+        glyphs[index].tex_v = f64i(rect.y) / fh;
+        glyphs[index].tex_w = f64i(rect.w) / fw;
+        glyphs[index].tex_h = f64i(rect.h) / fh;
     }
 
     return .{
@@ -479,6 +523,10 @@ pub fn generateAtlas(
         else
             &.{},
     };
+}
+
+fn sortLessThan(_: void, a: pack.IdRect, b: pack.IdRect) bool {
+    return @max(a.rect.w, a.rect.h) > @max(b.rect.w, b.rect.h);
 }
 
 fn getSdfPixelsInner(

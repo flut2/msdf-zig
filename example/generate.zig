@@ -62,7 +62,7 @@ pub fn main() !void {
         try image.writeToFile(path, .png);
     }
 
-    const atlas_w = 1024;
+    const atlas_w = 512;
     const atlas_h = 512;
     var timer: std.time.Timer = try .start();
     const data = try gen.generateAtlas(
