@@ -362,7 +362,7 @@ pub fn generateAtlas(
     }
 
     var rect_px_msdf10: std.AutoHashMapUnmanaged(usize, []const Msdf10Pixel) = .empty;
-    if (!is_msdf10) try rect_px_msdf10.ensureTotalCapacity(allocator, @intCast(codepoints.len));
+    if (is_msdf10) try rect_px_msdf10.ensureTotalCapacity(allocator, @intCast(codepoints.len));
     defer {
         var iter = rect_px_msdf10.valueIterator();
         while (iter.next()) |px| allocator.free(px.*);
