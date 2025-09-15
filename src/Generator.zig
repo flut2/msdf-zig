@@ -947,6 +947,6 @@ fn ftCubicTo(control1: [*c]const ft.Vector, control2: [*c]const ft.Vector, to: [
     return 0;
 }
 
-pub fn f64i(int: anytype) f32 {
+pub fn f64i(int: anytype) f64 {
     return @floatFromInt(int);
 }
