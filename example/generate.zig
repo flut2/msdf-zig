@@ -15,6 +15,10 @@ pub fn main() !void {
 
     const allocator = dbg_alloc.allocator();
 
+    var threaded: std.Io.Threaded = .init(allocator);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     zstbi.init(allocator);
     defer zstbi.deinit();
 
@@ -22,7 +26,7 @@ pub fn main() !void {
     defer file.close();
 
     var read_buf: [4096]u8 = undefined;
-    var reader = file.reader(&read_buf);
+    var reader = file.reader(io, &read_buf);
 
     const font_memory = try reader.interface.allocRemaining(allocator, .unlimited);
     defer allocator.free(font_memory);
