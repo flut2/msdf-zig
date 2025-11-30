@@ -9,7 +9,7 @@
         "build.zig",
         "build.zig.zon",
     },
-    .minimum_zig_version = "0.16.0-dev.156+b7104231a",
+    .minimum_zig_version = "0.16.0-dev.1484+d0ba6642b",
     .dependencies = .{
         .mach_freetype = .{ .path = "libs/mach-freetype" },
         .turbopack = .{
