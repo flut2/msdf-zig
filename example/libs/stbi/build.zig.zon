@@ -1,0 +1,17 @@
+.{
+    .fingerprint = 0x6893c03b4143ede4,
+    .name = .stbi,
+    .version = "1.0.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "stbi.c",
+        "stbi.zig",
+    },
+    .dependencies = .{
+        .stb = .{
+            .url = "git+https://github.com/nothings/stb.git#f1c79c02822848a9bed4315b12c8c8f3761e1296",
+            .hash = "N-V-__8AABQ7TgCnPlp8MP4YA8znrjd6E-ZjpF1rvrS8J_2I",
+        },
+    },
+}

@@ -13,8 +13,8 @@
     .dependencies = .{
         .mach_freetype = .{ .path = "libs/mach-freetype" },
         .turbopack = .{
-            .url = "git+https://github.com/flut2/turbopack.git#1ed6f6e423a82bafbee2a540328f767171ad8cef",
-            .hash = "turbopack-1.0.0-rSxRjiIfAABFC5AKKtsNiX_xd3BR0WNcuOZAMy5389Rf",
+            .url = "git+https://github.com/flut2/turbopack.git#d6995ce5a8f071bb759a274ac036dff65909905a",
+            .hash = "turbopack-1.0.0-rSxRjlofAAAoHGx7mg6pkzI3gEh-g9OQcnmF7_px6Sg7",
         },
     },
 }

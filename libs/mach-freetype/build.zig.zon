@@ -3,7 +3,6 @@
     .name = .mach_freetype,
     .version = "0.1.0",
     .paths = .{
-        "examples",
         "src",
         "build.zig",
         "build.zig.zon",
@@ -11,7 +10,6 @@
         "LICENSE-APACHE",
         "LICENSE-MIT",
         "LICENSE.freetype",
-        "README.md",
     },
     .dependencies = .{
         .freetype = .{ .path = "../freetype" },

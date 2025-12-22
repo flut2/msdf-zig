@@ -9,9 +9,9 @@
         "OFL.txt",
         "OpenSans-Bold.ttf",
     },
-    .minimum_zig_version = "0.16.0-dev.1484+d0ba6642b",
+    .minimum_zig_version = "0.16.0-dev.1634+b27bdd5af",
     .dependencies = .{
-        .zstbi = .{ .path = "libs/zstbi" },
+        .stbi = .{ .path = "libs/stbi" },
         .msdf_zig = .{ .path = ".." },
     },
 }

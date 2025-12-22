@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const Generator = @import("msdf-zig");
-const zstbi = @import("zstbi");
+const stbi = @import("stbi");
 
 fn printableAscii() []const u21 {
     var ret: []const u21 = &.{};
@@ -19,8 +19,8 @@ pub fn main() !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    zstbi.init(allocator);
-    defer zstbi.deinit();
+    stbi.init(allocator);
+    defer stbi.deinit();
 
     var file = try std.fs.cwd().openFile("assets/DMSerifDisplay-Regular.ttf", .{});
     defer file.close();
@@ -58,7 +58,7 @@ pub fn main() !void {
         defer data.deinit(allocator);
         std.log.info("SDF for codepoint {u} generated in: {d}us", .{ codepoint, @divFloor(timer.read(), std.time.ns_per_us) });
 
-        var image: zstbi.Image = try .createEmpty(data.glyph_data.width, data.glyph_data.height, gen_opts.sdf_type.numChannels(), .{});
+        var image: stbi.Image = try .createEmpty(data.glyph_data.width, data.glyph_data.height, gen_opts.sdf_type.numChannels(), .{});
         defer image.deinit();
         @memcpy(image.data, data.pixels.normal);
 
@@ -81,7 +81,7 @@ pub fn main() !void {
     defer data.deinit(allocator);
     std.log.info("SDF for atlas generated in: {d}us", .{@divFloor(timer.read(), std.time.ns_per_us)});
 
-    var image: zstbi.Image = try .createEmpty(atlas_w, atlas_h, gen_opts.sdf_type.numChannels(), .{});
+    var image: stbi.Image = try .createEmpty(atlas_w, atlas_h, gen_opts.sdf_type.numChannels(), .{});
     defer image.deinit();
     @memcpy(image.data, data.pixels.normal);
 

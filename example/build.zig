@@ -4,28 +4,23 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
+    const msdf_zig_mod = b.dependency("msdf_zig", .{ .target = target, .optimize = optimize });
+    const stbi_dep = b.dependency("stbi", .{ .target = target, .optimize = optimize });
     const exe = b.addExecutable(.{
         .name = "Example",
         .root_module = b.createModule(.{
             .root_source_file = b.path("generate.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "msdf-zig", .module = msdf_zig_mod.module("msdf-zig") },
+                .{ .name = "stbi", .module = stbi_dep.module("root") },
+            },
         }),
     });
-    exe.root_module.link_libc = true;
 
-    const msdf_zig_mod = b.dependency("msdf_zig", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    exe.root_module.addImport("msdf-zig", msdf_zig_mod.module("msdf-zig"));
-
-    const zstbi_dep = b.dependency("zstbi", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    exe.root_module.addImport("zstbi", zstbi_dep.module("root"));
-    exe.linkLibrary(zstbi_dep.artifact("zstbi"));
+    exe.root_module.linkLibrary(stbi_dep.artifact("stbi"));
 
     exe.step.dependOn(&b.addInstallDirectory(.{
         .source_dir = b.path("assets/"),
