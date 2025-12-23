@@ -17,12 +17,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{matrix.os}}
+        opt: [Debug, ReleaseFast]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Install Zig
         uses: mlugg/setup-zig@v2
-      - name: Build
+      - name: Build and run
         working-directory: ./example
-        run: zig build
+        run: zig build run -Doptimize=${{ matrix.opt }}
